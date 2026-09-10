@@ -6,11 +6,19 @@ Thanks for improving EarnProof. This repository contains the public web app and 
 
 ```bash
 npm install
+git config core.hooksPath .githooks
 cp .env.example .env.local
 npm run dev
 ```
 
 Default local URL: `http://localhost:3000`.
+
+`npm install` configures the tracked Git hooks automatically. The explicit Git
+command above also enables them in an existing checkout. The pre-commit hook
+runs unit tests when staged frontend code or configuration changes. The
+commit-message hook accepts conventional subjects such as `feat: add proof
+search` and `fix(wallet): handle rejected signatures`; scopes and issue IDs are
+optional.
 
 ## Validation
 
