@@ -1,60 +1,24 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { updateOrganization, formatOrganizationStatus, getStatusTone } from "@/lib/api/organizations";
-import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
+import { formatOrganizationStatus, getStatusTone, type LifecycleAction } from "@/lib/api/organizations";
 import { StatusBadge } from "@/components/common/production-ui";
-import { formatMessage } from "@/lib/i18n";
 import type { Organization } from "@/lib/api/generated/v1";
-
-const organizationActionLabels = {
-  suspend: "Suspend",
-  activate: "Activate",
-  revoke: "Revoke",
-} as const;
 
 export function OrganizationList({
   organizations,
   loading,
   token,
   onOrganizationUpdated,
+  onEditOrganization,
+  onLifecycleAction,
 }: {
   organizations: Organization[];
   loading: boolean;
   token: string;
   onOrganizationUpdated: (organization: Organization) => void;
+  onEditOrganization: (organizationId: string) => void;
+  onLifecycleAction: (action: LifecycleAction, organizationId: string, organizationName: string) => void;
 }) {
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{
-    type: "suspend" | "activate" | "revoke";
-    organizationId: string;
-    organizationName: string;
-  } | null>(null);
-
-  const handleStatusUpdate = useCallback(async (
-    organizationId: string,
-    newStatus: Organization["status"]
-  ) => {
-    setActionLoading(organizationId);
-    setError(null);
-    
-    try {
-      const controller = new AbortController();
-      const updated = await updateOrganization(
-        token,
-        organizationId,
-        { status: newStatus },
-        controller.signal
-      );
-      onOrganizationUpdated(updated);
-    } catch {
-      setError("Failed to update organization status. Please try again.");
-    } finally {
-      setActionLoading(null);
-      setConfirmAction(null);
-    }
-  }, [token, onOrganizationUpdated]);
 
   if (loading && organizations.length === 0) {
     return (
@@ -73,102 +37,44 @@ export function OrganizationList({
   }
 
   return (
-    <>
-      <div className="grid gap-3">
-        {error && (
-          <div className="rounded-md border border-rose-300/30 bg-rose-300/10 p-3">
-            <p className="text-sm text-rose-200" role="alert">
-              {error}
-            </p>
-          </div>
-        )}
-
-        {/* Desktop header */}
-        <div className="hidden grid-cols-[2fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
-          <div>Organization</div>
-          <div>Status</div>
-          <div>Created</div>
-          <div>Actions</div>
-        </div>
-
-        {organizations.map((org) => (
-          <OrganizationRow
-            key={org.id}
-            organization={org}
-            isLoading={actionLoading === org.id}
-            onSuspend={() => 
-              setConfirmAction({
-                type: "suspend",
-                organizationId: org.id,
-                organizationName: org.name,
-              })
-            }
-            onActivate={() => 
-              setConfirmAction({
-                type: "activate",
-                organizationId: org.id,
-                organizationName: org.name,
-              })
-            }
-            onRevoke={() =>
-              setConfirmAction({
-                type: "revoke",
-                organizationId: org.id,
-                organizationName: org.name,
-              })
-            }
-          />
-        ))}
+    <div className="grid gap-3">
+      {/* Desktop header */}
+      <div className="hidden grid-cols-[2fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
+        <div>Organization</div>
+        <div>Status</div>
+        <div>Created</div>
+        <div>Actions</div>
       </div>
 
-      {confirmAction && (
-        <ConfirmationDialog
-          title={formatMessage("{action} Organization", {
-            action: organizationActionLabels[confirmAction.type],
-          })}
-          message={
-            confirmAction.type === "revoke"
-              ? formatMessage(
-                  'Are you sure you want to revoke "{organizationName}"? This action cannot be undone and will permanently disable the organization.',
-                  { organizationName: confirmAction.organizationName },
-                )
-              : confirmAction.type === "suspend"
-              ? formatMessage(
-                  'Are you sure you want to suspend "{organizationName}"? This will temporarily disable organization operations.',
-                  { organizationName: confirmAction.organizationName },
-                )
-              : formatMessage(
-                  'Are you sure you want to activate "{organizationName}"? This will enable organization operations.',
-                  { organizationName: confirmAction.organizationName },
-                )
+      {organizations.map((org) => (
+        <OrganizationRow
+          key={org.id}
+          organization={org}
+          onEdit={() => onEditOrganization(org.id)}
+          onSuspend={() => 
+            onLifecycleAction("suspend", org.id, org.name)
           }
-          confirmText={organizationActionLabels[confirmAction.type]}
-          confirmVariant={confirmAction.type === "revoke" ? "danger" : "primary"}
-          onConfirm={() => {
-            const statusMap = {
-              suspend: "SUSPENDED" as const,
-              activate: "ACTIVE" as const,
-              revoke: "REVOKED" as const,
-            };
-            handleStatusUpdate(confirmAction.organizationId, statusMap[confirmAction.type]);
-          }}
-          onCancel={() => setConfirmAction(null)}
-          isProcessing={actionLoading === confirmAction.organizationId}
+          onActivate={() => 
+            onLifecycleAction("activate", org.id, org.name)
+          }
+          onRevoke={() =>
+            onLifecycleAction("revoke", org.id, org.name)
+          }
         />
-      )}
-    </>
+      ))}
+    </div>
   );
 }
 
 function OrganizationRow({
   organization,
-  isLoading,
+  onEdit,
   onSuspend,
   onActivate,
   onRevoke,
 }: {
   organization: Organization;
-  isLoading: boolean;
+  onEdit: () => void;
   onSuspend: () => void;
   onActivate: () => void;
   onRevoke: () => void;
@@ -218,31 +124,34 @@ function OrganizationRow({
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
+        <button
+          onClick={onEdit}
+          className="h-8 rounded border border-blue-300/30 px-3 text-xs font-medium text-blue-200 hover:bg-blue-300/10 transition"
+        >
+          Edit
+        </button>
         {canActivate && (
           <button
             onClick={onActivate}
-            disabled={isLoading}
-            className="h-8 rounded border border-emerald-300/30 px-3 text-xs font-medium text-emerald-200 hover:bg-emerald-300/10 disabled:opacity-50 transition"
+            className="h-8 rounded border border-emerald-300/30 px-3 text-xs font-medium text-emerald-200 hover:bg-emerald-300/10 transition"
           >
-            {isLoading ? "..." : "Activate"}
+            Activate
           </button>
         )}
         {canSuspend && (
           <button
             onClick={onSuspend}
-            disabled={isLoading}
-            className="h-8 rounded border border-amber-300/30 px-3 text-xs font-medium text-amber-200 hover:bg-amber-300/10 disabled:opacity-50 transition"
+            className="h-8 rounded border border-amber-300/30 px-3 text-xs font-medium text-amber-200 hover:bg-amber-300/10 transition"
           >
-            {isLoading ? "..." : "Suspend"}
+            Suspend
           </button>
         )}
         {canRevoke && (
           <button
             onClick={onRevoke}
-            disabled={isLoading}
-            className="h-8 rounded border border-rose-300/30 px-3 text-xs font-medium text-rose-200 hover:bg-rose-300/10 disabled:opacity-50 transition"
+            className="h-8 rounded border border-rose-300/30 px-3 text-xs font-medium text-rose-200 hover:bg-rose-300/10 transition"
           >
-            {isLoading ? "..." : "Revoke"}
+            Revoke
           </button>
         )}
       </div>
