@@ -1,5 +1,6 @@
 import { apiClient, bearer, retryRead, retryMutation } from "./client";
 import { captureRevision } from "./revision-tracking";
+import { normalizeError, type NormalizedError } from "./error-normalization";
 import type { Organization } from "./generated/v1";
 import type { OrganizationWithRevision, UpdateOrganizationRequestWithRevision } from "./revision-tracking";
 
@@ -17,6 +18,18 @@ export type UpdateOrganizationRequest = {
 
 // Re-export revision-aware types for use in forms
 export type { OrganizationWithRevision, UpdateOrganizationRequestWithRevision };
+
+/**
+ * Lifecycle status types
+ */
+export type OrganizationStatus = Organization["status"];
+
+/**
+ * Lifecycle action results with error normalization
+ */
+export type ApiResult<T> = 
+  | { success: true; data: T }
+  | { success: false; error: NormalizedError };
 
 export async function getOrganizations(token: string, signal: AbortSignal): Promise<OrganizationWithRevision[]> {
   return retryRead(async (signal) => {
@@ -81,6 +94,61 @@ export async function updateOrganization(
     // Capture new revision after successful update
     return captureRevision(org);
   }, signal);
+}
+
+/**
+ * Safe wrapper around updateOrganization that returns normalized errors
+ */
+export async function updateOrganizationSafe(
+  token: string,
+  organizationId: string,
+  request: UpdateOrganizationRequest,
+  signal: AbortSignal
+): Promise<ApiResult<Organization>> {
+  try {
+    const data = await updateOrganization(token, organizationId, request, signal);
+    return { success: true, data };
+  } catch (error) {
+    const normalizedError = await normalizeError(error);
+    return { success: false, error: normalizedError };
+  }
+}
+
+/**
+ * Lifecycle state transition action
+ */
+export type LifecycleAction = "activate" | "suspend" | "archive" | "revoke";
+
+/**
+ * Map lifecycle action to target status
+ */
+export function getStatusForLifecycleAction(
+  action: LifecycleAction
+): Organization["status"] {
+  switch (action) {
+    case "activate":
+      return "ACTIVE";
+    case "suspend":
+      return "SUSPENDED";
+    case "archive":
+      // Note: if API doesn't support archive, this could map to REVOKED or a custom state
+      return "REVOKED";
+    case "revoke":
+      return "REVOKED";
+  }
+}
+
+/**
+ * Perform a lifecycle action on an organization (safe version)
+ */
+export async function performLifecycleAction(
+  token: string,
+  organizationId: string,
+  action: LifecycleAction,
+  signal: AbortSignal
+): Promise<ApiResult<Organization>> {
+  const status = getStatusForLifecycleAction(action);
+  return updateOrganizationSafe(token, organizationId, { status }, signal);
 }
 
 export function validateOrganizationName(name: string): string | null {
