@@ -28,6 +28,12 @@ export default function DevelopersPage() {
             >
               Manage API Keys
             </Link>
+            <Link
+              href="/developers/webhooks"
+              className="inline-flex h-10 items-center justify-center rounded-md bg-cyan-300 px-4 text-xs font-semibold text-slate-950 transition hover:bg-cyan-200"
+            >
+              Manage Webhooks
+            </Link>
           </div>
         </section>
         
