@@ -1,5 +1,6 @@
 import { appConfig } from "@/config/app";
 import { categorizeError, reportClientError } from "@/lib/telemetry";
+import { ApiNetworkError, recordNetworkFailure, recordNetworkSuccess } from "@/lib/network";
 
 const DEFAULT_TIMEOUT_MS = 10_000; // 10 seconds
 
@@ -136,24 +137,28 @@ export async function apiClient<TResponse>({
       },
     });
   } catch (error) {
+    recordNetworkFailure();
     reportClientError({
       error,
       category: categorizeError(error),
       pathname: currentPathname(),
     });
-    throw error;
+    // Wrap in ApiNetworkError for consistent error handling across the app
+    throw new ApiNetworkError(error);
   }
 
   if (!response.ok) {
+    recordNetworkFailure();
     const error = new Error(`EarnProof API request failed with ${response.status}`);
     reportClientError({
       error,
       category: categorizeError(error, response),
       pathname: currentPathname(),
     });
-    throw error;
+    throw new ApiNetworkError(error, response);
   }
 
+  recordNetworkSuccess();
   return response.json() as Promise<TResponse>;
 }
 
