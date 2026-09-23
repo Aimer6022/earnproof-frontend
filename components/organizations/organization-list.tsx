@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { updateOrganization, formatOrganizationStatus, getStatusTone } from "@/lib/api/organizations";
+import { updateOrganization, formatOrganizationStatus, getStatusTone, getOrganization } from "@/lib/api/organizations";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
+import { ResolveConflictDialog } from "@/components/forms/resolve-conflict-dialog";
 import { StatusBadge } from "@/components/common/production-ui";
 import { formatMessage } from "@/lib/i18n";
-import type { Organization } from "@/lib/api/generated/v1";
+import { ApiConflictError } from "@/lib/api/client";
+import { useConflictResolution } from "@/hooks/use-conflict-resolution";
+import type { OrganizationWithRevision } from "@/lib/api/organizations";
 
 const organizationActionLabels = {
   suspend: "Suspend",
@@ -19,10 +22,10 @@ export function OrganizationList({
   token,
   onOrganizationUpdated,
 }: {
-  organizations: Organization[];
+  organizations: OrganizationWithRevision[];
   loading: boolean;
   token: string;
-  onOrganizationUpdated: (organization: Organization) => void;
+  onOrganizationUpdated: (organization: OrganizationWithRevision) => void;
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,30 +34,88 @@ export function OrganizationList({
     organizationId: string;
     organizationName: string;
   } | null>(null);
+  const [currentOrganization, setCurrentOrganization] = useState<OrganizationWithRevision | null>(null);
+
+  const {
+    conflict,
+    isRetrying,
+    isReloading,
+    showConflict,
+    handleReload,
+    handleRetry,
+    handleAbandon,
+  } = useConflictResolution({
+    onReloadEntity: async () => {
+      if (!confirmAction) return;
+      try {
+        const controller = new AbortController();
+        const org = await getOrganization(token, confirmAction.organizationId, controller.signal);
+        onOrganizationUpdated(org);
+      } finally {
+        setActionLoading(null);
+        setConfirmAction(null);
+      }
+    },
+    onRetrySubmit: async (formState) => {
+      if (!confirmAction) return;
+      try {
+        const statusMap = {
+          suspend: "SUSPENDED" as const,
+          activate: "ACTIVE" as const,
+          revoke: "REVOKED" as const,
+        };
+        const controller = new AbortController();
+        const updated = await updateOrganization(
+          token,
+          confirmAction.organizationId,
+          { 
+            status: statusMap[confirmAction.type],
+            __revision: (formState as any).__revision 
+          },
+          controller.signal
+        );
+        onOrganizationUpdated(updated);
+      } finally {
+        setActionLoading(null);
+        setConfirmAction(null);
+      }
+    },
+  });
 
   const handleStatusUpdate = useCallback(async (
     organizationId: string,
-    newStatus: Organization["status"]
+    newStatus: OrganizationWithRevision["status"],
+    org: OrganizationWithRevision
   ) => {
     setActionLoading(organizationId);
     setError(null);
+    setCurrentOrganization(org);
     
     try {
       const controller = new AbortController();
       const updated = await updateOrganization(
         token,
         organizationId,
-        { status: newStatus },
+        { 
+          status: newStatus,
+          __revision: org.__revision
+        },
         controller.signal
       );
       onOrganizationUpdated(updated);
-    } catch {
-      setError("Failed to update organization status. Please try again.");
+    } catch (err) {
+      if (err instanceof ApiConflictError) {
+        // Show conflict dialog with the current organization and intended status change
+        const intendedState = { ...org, status: newStatus };
+        showConflict(err, intendedState, ["status", "name", "website"]);
+      } else {
+        setError("Failed to update organization status. Please try again.");
+      }
     } finally {
       setActionLoading(null);
       setConfirmAction(null);
     }
-  }, [token, onOrganizationUpdated]);
+  }, [token, onOrganizationUpdated, showConflict]);
 
   if (loading && organizations.length === 0) {
     return (
@@ -145,15 +206,30 @@ export function OrganizationList({
           confirmText={organizationActionLabels[confirmAction.type]}
           confirmVariant={confirmAction.type === "revoke" ? "danger" : "primary"}
           onConfirm={() => {
+            const org = organizations.find(o => o.id === confirmAction.organizationId);
+            if (!org) return;
             const statusMap = {
               suspend: "SUSPENDED" as const,
               activate: "ACTIVE" as const,
               revoke: "REVOKED" as const,
             };
-            handleStatusUpdate(confirmAction.organizationId, statusMap[confirmAction.type]);
+            handleStatusUpdate(confirmAction.organizationId, statusMap[confirmAction.type], org);
           }}
           onCancel={() => setConfirmAction(null)}
           isProcessing={actionLoading === confirmAction.organizationId}
+        />
+      )}
+
+      {conflict.isActive && (
+        <ResolveConflictDialog
+          entityType="Organization"
+          entityId={confirmAction?.organizationId ?? ""}
+          conflicts={conflict.conflicts}
+          localFormState={conflict.localFormState}
+          onRetry={handleRetry}
+          onReload={handleReload}
+          onAbandon={handleAbandon}
+          isRetrying={isRetrying || isReloading}
         />
       )}
     </>
@@ -167,7 +243,7 @@ function OrganizationRow({
   onActivate,
   onRevoke,
 }: {
-  organization: Organization;
+  organization: OrganizationWithRevision;
   isLoading: boolean;
   onSuspend: () => void;
   onActivate: () => void;
