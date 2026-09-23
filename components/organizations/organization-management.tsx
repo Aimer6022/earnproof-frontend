@@ -1,10 +1,8 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CreateOrganizationForm } from "./create-organization-form";
 import { OrganizationList } from "./organization-list";
 import { getOrganizations } from "@/lib/api/organizations";
-import type { Organization } from "@/lib/api/generated/v1";
+import type { OrganizationWithRevision } from "@/lib/api/organizations";
 
 const SESSION_KEY = "earnproof.session";
 
@@ -36,7 +34,7 @@ function readStoredSession(): SessionData | null {
 
 export function OrganizationManagement() {
   const [session] = useState<SessionData | null>(() => readStoredSession());
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [organizations, setOrganizations] = useState<OrganizationWithRevision[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -92,11 +90,11 @@ export function OrganizationManagement() {
     };
   }, [loadOrganizations]);
 
-  const handleOrganizationCreated = useCallback((organization: Organization) => {
+  const handleOrganizationCreated = useCallback((organization: OrganizationWithRevision) => {
     setOrganizations(prev => [...prev, organization]);
   }, []);
 
-  const handleOrganizationUpdated = useCallback((updatedOrg: Organization) => {
+  const handleOrganizationUpdated = useCallback((updatedOrg: OrganizationWithRevision) => {
     setOrganizations(prev => prev.map(org => 
       org.id === updatedOrg.id ? updatedOrg : org
     ));

@@ -1,5 +1,7 @@
 import { apiClient, bearer, retryRead, retryMutation } from "./client";
+import { captureRevision } from "./revision-tracking";
 import type { Organization } from "./generated/v1";
+import type { OrganizationWithRevision, UpdateOrganizationRequestWithRevision } from "./revision-tracking";
 
 export type CreateOrganizationRequest = {
   name: string;
@@ -13,14 +15,19 @@ export type UpdateOrganizationRequest = {
   status?: Organization["status"];
 };
 
-export async function getOrganizations(token: string, signal: AbortSignal): Promise<Organization[]> {
+// Re-export revision-aware types for use in forms
+export type { OrganizationWithRevision, UpdateOrganizationRequestWithRevision };
+
+export async function getOrganizations(token: string, signal: AbortSignal): Promise<OrganizationWithRevision[]> {
   return retryRead(async (signal) => {
-    return apiClient<Organization[]>({
+    const orgs = await apiClient<Organization[]>({
       path: "/organizations",
       method: "GET",
       headers: bearer(token),
       signal,
     });
+    // Capture revision for each organization at load time
+    return orgs.map(org => captureRevision(org));
   }, signal);
 }
 
@@ -28,14 +35,16 @@ export async function getOrganization(
   token: string,
   organizationId: string,
   signal: AbortSignal
-): Promise<Organization> {
+): Promise<OrganizationWithRevision> {
   return retryRead(async (signal) => {
-    return apiClient<Organization>({
+    const org = await apiClient<Organization>({
       path: `/organizations/${organizationId}`,
       method: "GET",
       headers: bearer(token),
       signal,
     });
+    // Capture revision at load time
+    return captureRevision(org);
   }, signal);
 }
 
@@ -58,17 +67,19 @@ export async function createOrganization(
 export async function updateOrganization(
   token: string,
   organizationId: string,
-  request: UpdateOrganizationRequest,
+  request: UpdateOrganizationRequest | UpdateOrganizationRequestWithRevision,
   signal: AbortSignal
-): Promise<Organization> {
+): Promise<OrganizationWithRevision> {
   return retryMutation(async (signal) => {
-    return apiClient<Organization>({
+    const org = await apiClient<Organization>({
       path: `/organizations/${organizationId}`,
       method: "PATCH",
       headers: bearer(token),
       body: JSON.stringify(request),
       signal,
     });
+    // Capture new revision after successful update
+    return captureRevision(org);
   }, signal);
 }
 
