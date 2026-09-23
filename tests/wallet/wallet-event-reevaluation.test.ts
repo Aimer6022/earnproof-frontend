@@ -21,7 +21,7 @@ describe("Wallet Event Re-evaluation", () => {
   describe("account change scenario", () => {
     it("re-validates compatibility when account changes", () => {
       // Account 1 on testnet
-      let walletContext: WalletNetworkContext = {
+      const walletContext: WalletNetworkContext = {
         networkPassphrase: "Test SDF Network ; September 2015",
       };
 
@@ -221,7 +221,7 @@ describe("Wallet Event Re-evaluation", () => {
 
   describe("wallet status update scenario", () => {
     it("re-validates after wallet status update", () => {
-      let walletContext: WalletNetworkContext = {
+      const walletContext: WalletNetworkContext = {
         networkPassphrase: "Test SDF Network ; September 2015",
       };
 

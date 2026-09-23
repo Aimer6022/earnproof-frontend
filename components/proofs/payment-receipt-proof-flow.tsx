@@ -117,7 +117,7 @@ export function PaymentReceiptProofFlow() {
       }
 
       // Detect wallet network context (may not be available in older wallet versions).
-      const walletNetworkContext = await detectWalletNetworkContext(walletAddress);
+      const walletNetworkContext = await detectWalletNetworkContext();
 
       // Validate wallet network compatibility before proceeding with auth.
       const compatibility = validateNetworkCompatibility(walletNetworkContext);
@@ -477,9 +477,7 @@ async function getFreighterAddress() {
  * Earlier versions do not expose this metadata. Returns an empty context object
  * if network detection fails or is not supported.
  */
-async function detectWalletNetworkContext(
-  _walletAddress: string,
-): Promise<WalletNetworkContext> {
+async function detectWalletNetworkContext(): Promise<WalletNetworkContext> {
   return {};
 }
 

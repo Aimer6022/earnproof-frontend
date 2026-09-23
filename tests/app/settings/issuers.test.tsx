@@ -3,7 +3,7 @@
  * Coverage: visual rendering, status badges, interactions, authorization
  */
 
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type { ReactNode } from 'react';
 import IssuersPage from '@/app/settings/issuers/page';

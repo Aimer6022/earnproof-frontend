@@ -221,15 +221,6 @@ describe("Recovery Workflow - Network Mismatch to Success", () => {
     });
 
     it("uses idempotency key for same intent retry", () => {
-      const intent = {
-        selectedPaymentIds: ["p1", "p2"],
-        thresholdAmount: "100",
-        assetCode: "USDC",
-        assetIssuer: "GBBUQWP...",
-        periodStart: "2026-08-01T00:00:00.000Z",
-        periodEnd: "2026-08-31T23:59:59.000Z",
-      };
-
       // Network mismatch on first attempt
       let walletContext: WalletNetworkContext = {
         networkPassphrase: "Public Global Stellar Network ; September 2015",
@@ -337,7 +328,6 @@ describe("Recovery Workflow - Network Mismatch to Success", () => {
   describe("disconnect during recovery", () => {
     it("clears state when user disconnects during recovery", () => {
       let isConnected = false;
-      let proofIntent = { selectedPaymentIds: ["p1"] };
 
       // Initial connection
       let walletContext: WalletNetworkContext = {
@@ -351,7 +341,6 @@ describe("Recovery Workflow - Network Mismatch to Success", () => {
       // User disconnects during recovery
       isConnected = false;
       walletContext = {};
-      proofIntent = { selectedPaymentIds: [] };
 
       result = validateNetworkCompatibility(walletContext);
       expect(isSigningAllowed(result.state)).toBe(false);

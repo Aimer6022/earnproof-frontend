@@ -20,7 +20,6 @@ describe("CursorPagination", () => {
           onPrevious={jest.fn()}
           onNext={jest.fn()}
           resultCount={25}
-          resultsPerPage={10}
         />
       );
 

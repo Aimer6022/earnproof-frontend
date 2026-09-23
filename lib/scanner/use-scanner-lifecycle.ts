@@ -17,7 +17,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   type ScannerState,
   type ScannerError,
@@ -33,18 +32,15 @@ import {
   createPermissionNotSupportedError,
   createCameraNotAvailableError,
   createDetectorNotAvailableError,
-  createDetectorError,
   createStreamStoppedError,
   createUnknownError,
 } from "./scanner-state";
 import {
-  type GetMediaStreamOptions,
   type GetMediaStreamResult,
   getMediaStream,
   attachStreamToVideo,
   stopMediaStream,
   detachStreamFromVideo,
-  isStreamActive,
   monitorStreamHealth,
   onDeviceChange,
 } from "./media-stream-manager";
@@ -81,7 +77,6 @@ export function useScannerLifecycle(
   videoRef: React.RefObject<HTMLVideoElement>,
   options: UseScannerLifecycleOptions = {},
 ): ScannerLifecycleHandle {
-  const router = useRouter();
   const [state, setState] = useState<ScannerState>(SCANNER_STATE_PERMISSION);
 
   const streamRef = useRef<MediaStream | null>(null);
@@ -162,7 +157,7 @@ export function useScannerLifecycle(
     detachStreamFromVideo(videoRef.current, true);
     stopMediaStream(streamRef.current);
     streamRef.current = null;
-  }, []);
+  }, [videoRef]);
 
   /**
    * Stop camera and transition to stopped state.

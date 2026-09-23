@@ -3,7 +3,7 @@
  * Coverage: visual rendering, interactions, authorization
  */
 
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type { ReactNode } from 'react';
 import OrganizationsPage from '@/app/settings/organizations/page';

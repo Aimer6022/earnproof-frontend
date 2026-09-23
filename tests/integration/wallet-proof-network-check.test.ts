@@ -298,10 +298,10 @@ describe("Wallet Proof Creation - Network Compatibility Checks", () => {
       const scenarios = [
         { name: "testnet", context: { networkPassphrase: "Test SDF Network ; September 2015" }, shouldAllow: true },
         { name: "public", context: { networkPassphrase: "Public Global Stellar Network ; September 2015" }, shouldAllow: false },
-        { name: "unknown", context: {}, shouldAllow: false },
+        { context: {}, shouldAllow: false },
       ];
 
-      scenarios.forEach(({ name, context, shouldAllow }) => {
+      scenarios.forEach(({ context, shouldAllow }) => {
         const result = validateNetworkCompatibility(context);
         const allowed = isSigningAllowed(result.state);
 

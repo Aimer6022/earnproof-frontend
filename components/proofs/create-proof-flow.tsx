@@ -141,7 +141,7 @@ export function CreateProofFlow() {
       }
 
       // Detect wallet network context (may not be available in older wallet versions).
-      const walletNetworkContext = await detectWalletNetworkContext(walletAddress);
+      const walletNetworkContext = await detectWalletNetworkContext();
 
       // Validate wallet network compatibility before proceeding with auth.
       const compatibility = validateNetworkCompatibility(walletNetworkContext);
@@ -718,9 +718,7 @@ async function getFreighterAddress() {
  * that supports network detection in the API, this function would query the
  * wallet's current network state without prompting the user.
  */
-async function detectWalletNetworkContext(
-  _walletAddress: string,
-): Promise<WalletNetworkContext> {
+async function detectWalletNetworkContext(): Promise<WalletNetworkContext> {
   // In a future enhancement with wallet support for network detection API,
   // this would call freighter.getNetwork() or similar to detect the wallet's
   // current network without prompting the user for a signature.

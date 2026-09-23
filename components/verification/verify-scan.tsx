@@ -9,10 +9,9 @@ import {
   type QrRejectReason,
   type ScanDiagnostic,
 } from "@/lib/validation/qr-payload";
-import { useScannerLifecycle, type ScannerLifecycleHandle } from "@/lib/scanner/use-scanner-lifecycle";
+import { useScannerLifecycle } from "@/lib/scanner/use-scanner-lifecycle";
 import { type ScannerError } from "@/lib/scanner/scanner-state";
 
-type ScanStatus = "idle" | "starting" | "scanning" | "error";
 type BarcodeResult = { rawValue: string };
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource | HTMLVideoElement) => Promise<BarcodeResult[]>;
@@ -57,7 +56,6 @@ export function VerifyScan() {
   const scanTimerRef = useRef<number | null>(null);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
   const [manualInput, setManualInput] = useState("");
-  const [scanStatus, setScanStatus] = useState<ScanStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [cameraAvailable, setCameraAvailable] = useState(true);
   const [statusAnnouncement, setStatusAnnouncement] = useState(
@@ -67,14 +65,12 @@ export function VerifyScan() {
   // Initialize scanner lifecycle management
   const scanner = useScannerLifecycle(videoRef as React.RefObject<HTMLVideoElement>, {
     onCameraReady: () => {
-      setScanStatus("scanning");
       setStatusAnnouncement("Camera is scanning. Center one EarnProof QR code in the frame.");
     },
     onCameraStopped: () => {
-      setScanStatus("idle");
+      // Camera stopped
     },
     onError: (error: ScannerError) => {
-      setScanStatus("error");
       setMessage(getScannerErrorMessage(error));
       setStatusAnnouncement(getScannerErrorMessage(error));
       setCameraAvailable(error.recoverable);
@@ -93,7 +89,6 @@ export function VerifyScan() {
     onDeviceDisconnect: () => {
       setMessage("Camera device was disconnected. Try again.");
       setStatusAnnouncement("Camera device was disconnected. Try again.");
-      setScanStatus("error");
     },
   });
 
@@ -102,7 +97,6 @@ export function VerifyScan() {
       if (extras?.multiple) {
         setMessage(REJECT_MESSAGES["multiple-codes"]);
         setStatusAnnouncement(REJECT_MESSAGES["multiple-codes"]);
-        setScanStatus("error");
         logScan({ outcome: "multiple-codes", reason: "multiple-codes" });
         return false;
       }
@@ -111,7 +105,6 @@ export function VerifyScan() {
       if (!parsed.ok) {
         setMessage(REJECT_MESSAGES[parsed.reason]);
         setStatusAnnouncement(REJECT_MESSAGES[parsed.reason]);
-        setScanStatus("error");
         logScan({
           outcome: "rejected",
           reason: parsed.reason,
@@ -126,15 +119,14 @@ export function VerifyScan() {
         payloadBytes: new TextEncoder().encode(value).length,
       });
       scanner.stopCamera();
-      router.push(parsed.verifyPath);
+      void router.push(parsed.verifyPath);
       return true;
     },
-    [scanner],
+    [scanner, router],
   );
 
   const startCamera = useCallback(async () => {
     setMessage(null);
-    setScanStatus("starting");
     setStatusAnnouncement("Requesting camera permission.");
     await scanner.startCamera();
   }, [scanner]);
@@ -185,13 +177,11 @@ export function VerifyScan() {
             return;
           }
           scanner.stopCamera();
-          setScanStatus("error");
           return;
         }
         scanTimerRef.current = window.setTimeout(() => void scanFrame(), 250);
       } catch {
         scanner.stopCamera();
-        setScanStatus("error");
         setMessage("We could not read that QR code. Center it in the frame and try again.");
         setStatusAnnouncement("Scanning failed. You can retry the camera, upload an image, or enter a proof ID.");
         logScan({ outcome: "unreadable", reason: "image-unreadable" });
@@ -208,6 +198,7 @@ export function VerifyScan() {
     };
   }, [scanner.state.name, scanner.state.isScanning, submitValue]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   /**
    * Cleanup on unmount.
    */
@@ -219,7 +210,7 @@ export function VerifyScan() {
       }
       scanner.stopCamera();
     };
-  }, [scanner]);
+  }, []);
 
   async function onImageChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -229,13 +220,11 @@ export function VerifyScan() {
     if (!window.BarcodeDetector) {
       setMessage("Image QR scanning is not available in this browser. Enter the proof ID manually.");
       setStatusAnnouncement("Image QR scanning is not available. Enter the proof ID manually.");
-      setScanStatus("error");
       logScan({ outcome: "camera-unavailable", reason: "detector-missing" });
       return;
     }
 
     try {
-      setScanStatus("scanning");
       setStatusAnnouncement("Reading the uploaded QR image.");
       const bitmap = await createImageBitmap(file);
       const results = await new window.BarcodeDetector({ formats: ["qr_code"] }).detect(bitmap);
@@ -248,14 +237,12 @@ export function VerifyScan() {
         if (!results[0]?.rawValue) {
           setMessage("No readable EarnProof QR code was found in that image. Try another image.");
           setStatusAnnouncement("No readable EarnProof QR code was found. Try another image or enter a proof ID.");
-          setScanStatus("error");
           logScan({ outcome: "unreadable", reason: "image-unreadable" });
         }
       }
     } catch {
       setMessage("We could not read that image. Choose a clear QR code image and try again.");
       setStatusAnnouncement("The uploaded image could not be read. Try a clearer image or enter a proof ID.");
-      setScanStatus("error");
       logScan({ outcome: "unreadable", reason: "image-unreadable" });
     }
   }

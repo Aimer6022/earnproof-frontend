@@ -68,8 +68,8 @@ export function ScannerPermissionRecovery({
         </h3>
         <ol className="mt-2 list-inside list-decimal space-y-1 text-xs text-slate-400 sm:text-sm">
           <li>Look for a permission prompt or browser notification</li>
-          <li>Click "Allow" or "Grant permission" in the prompt</li>
-          <li>If you don't see a prompt, check your browser settings</li>
+          <li>Click &quot;Allow&quot; or &quot;Grant permission&quot; in the prompt</li>
+          <li>If you don&apos;t see a prompt, check your browser settings</li>
           <li>Return to this page and try again</li>
         </ol>
       </div>

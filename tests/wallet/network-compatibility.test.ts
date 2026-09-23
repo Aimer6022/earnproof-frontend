@@ -17,7 +17,6 @@ import {
 } from "@/lib/wallet/network-compatibility";
 import type {
   WalletNetworkContext,
-  NetworkCompatibilityCheckResult,
 } from "@/lib/wallet/types";
 
 describe("Wallet Network Compatibility", () => {
@@ -441,7 +440,7 @@ describe("Wallet Network Compatibility", () => {
     it("treats undefined and null as unknown", () => {
       const walletContext: WalletNetworkContext = {
         networkPassphrase: undefined,
-        network: null as any,
+        network: null as unknown as string | undefined,
       };
 
       const result = validateNetworkCompatibility(walletContext);

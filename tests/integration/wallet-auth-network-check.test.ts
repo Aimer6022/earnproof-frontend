@@ -14,7 +14,6 @@ import {
 } from "@/lib/wallet/network-compatibility";
 import type {
   WalletNetworkContext,
-  NetworkCompatibilityCheckResult,
 } from "@/lib/wallet/types";
 
 describe("Wallet Authentication - Network Compatibility Checks", () => {

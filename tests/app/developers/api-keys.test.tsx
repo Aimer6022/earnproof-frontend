@@ -3,7 +3,7 @@
  * Coverage: visual rendering, interactions, authorization, accessibility
  */
 
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type { ReactNode } from 'react';
 import ApiKeysPage from '@/app/developers/api-keys/page';

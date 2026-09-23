@@ -13,13 +13,11 @@ export function CursorPagination({
   onPrevious,
   onNext,
   resultCount = 0,
-  resultsPerPage = 10,
 }: {
   state: PaginationState;
   onPrevious: () => void;
   onNext: () => void;
   resultCount?: number;
-  resultsPerPage?: number;
 }) {
   const hasPrevious = state.previousCursor !== null;
   const hasNext = state.nextCursor !== null;

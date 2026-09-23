@@ -65,8 +65,8 @@ export function OrganizationManagement() {
       setError(null);
 
       try {
-        let nextCursor = pagination.currentPage.nextCursor;
-        let previousCursor = pagination.currentPage.previousCursor;
+        let nextCursor = pagination.currentPage.nextCursor ?? undefined;
+        let previousCursor = pagination.currentPage.previousCursor ?? undefined;
 
         // Handle navigation requests
         if (navigateToNext && pagination.currentPage.nextCursor) {
@@ -215,7 +215,10 @@ export function OrganizationManagement() {
           organizations={organizations}
           loading={pagination.isLoading}
           token={session.token}
-          paginationState={pagination.currentPage}
+          paginationState={{
+            ...pagination.currentPage,
+            isLoading: pagination.isLoading,
+          }}
           onPreviousPage={handlePreviousPage}
           onNextPage={handleNextPage}
           focusResults={pagination.wasUserInitiated}

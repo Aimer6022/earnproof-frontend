@@ -3,7 +3,6 @@
  */
 
 import {
-  type ScannerState,
   type ScannerStateName,
   SCANNER_STATE_PERMISSION,
   createStartupState,

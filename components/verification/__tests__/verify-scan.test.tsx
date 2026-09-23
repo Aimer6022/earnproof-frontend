@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VerifyScan } from "../verify-scan";
 
@@ -16,7 +16,7 @@ jest.mock("next/navigation", () => ({
 }));
 
 const mockDetect = jest.fn();
-(global as any).BarcodeDetector = jest
+(global as Record<string, unknown>).BarcodeDetector = jest
   .fn()
   .mockImplementation(() => ({ detect: mockDetect }));
 
@@ -154,7 +154,7 @@ describe("VerifyScan - Manual Input Fallback", () => {
 describe("VerifyScan - Image Upload", () => {
   beforeEach(() => {
     mockDetect.mockReset();
-    (global as any).createImageBitmap = jest
+    (global as Record<string, unknown>).createImageBitmap = jest
       .fn()
       .mockResolvedValue({ close: jest.fn() });
   });

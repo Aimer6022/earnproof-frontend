@@ -21,7 +21,7 @@ function TestDialog({
   onCancel,
 }: {
   isOpen: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   title: string;
   message: string;
   onConfirm: () => void;
@@ -53,7 +53,7 @@ function AccessibleDialog({
   onCancel,
 }: {
   isOpen: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   title: string;
   message: string;
   onConfirm: () => void;
@@ -65,7 +65,7 @@ function AccessibleDialog({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
-      onClose();
+      onClose?.();
     }
   };
 
@@ -90,7 +90,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Test Dialog"
           message="Are you sure?"
           onConfirm={() => {}}
@@ -107,7 +106,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Test Dialog"
           message="Are you sure?"
           onConfirm={() => {}}
@@ -123,7 +121,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Confirm Delete"
           message="This action cannot be undone."
           onConfirm={() => {}}
@@ -143,7 +140,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Delete Confirmation"
           message="Are you sure?"
           onConfirm={() => {}}
@@ -164,7 +160,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <AccessibleDialog
           isOpen={true}
-          onClose={() => {}}
           title="Delete?"
           message="This action is permanent."
           onConfirm={() => {}}
@@ -184,7 +179,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <AccessibleDialog
           isOpen={true}
-          onClose={() => {}}
           title="Confirm Action"
           message="Are you sure?"
           onConfirm={() => {}}
@@ -203,10 +197,9 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
 
     it('tab cycles through dialog buttons', async () => {
       const user = userEvent.setup();
-      const { container } = render(
+      render(
         <AccessibleDialog
           isOpen={true}
-          onClose={() => {}}
           title="Confirm"
           message="Are you sure?"
           onConfirm={() => {}}
@@ -233,10 +226,9 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
 
     it('focus cycles within dialog (Tab/Shift+Tab)', async () => {
       const user = userEvent.setup();
-      const { container } = render(
+      render(
         <AccessibleDialog
           isOpen={true}
-          onClose={() => {}}
           title="Action Required"
           message="Confirm this action"
           onConfirm={() => {}}
@@ -275,7 +267,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
             <button onClick={() => setIsOpen(true)}>Open Dialog</button>
             <AccessibleDialog
               isOpen={isOpen}
-              onClose={() => setIsOpen(false)}
               title="Dialog"
               message="Content"
               onConfirm={() => setIsOpen(false)}
@@ -285,7 +276,7 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
         );
       };
 
-      const { rerender } = render(<TriggerButton />);
+      const { } = render(<TriggerButton />);
 
       const triggerButton = screen.getByRole('button', { name: 'Open Dialog' });
 
@@ -303,10 +294,9 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const user = userEvent.setup();
       const onClose = jest.fn();
 
-      const { container, rerender } = render(
+      render(
         <AccessibleDialog
           isOpen={true}
-          onClose={onClose}
           title="Close Me"
           message="Press Escape"
           onConfirm={() => {}}
@@ -314,7 +304,7 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
         />
       );
 
-      const dialog = container.querySelector('[role="dialog"]');
+      const dialog = screen.getByRole('dialog');
       expect(dialog).toBeInTheDocument();
 
       // Press Escape
@@ -331,7 +321,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <AccessibleDialog
           isOpen={true}
-          onClose={() => {}}
           title="Confirm"
           message="Press Enter to confirm"
           onConfirm={onConfirm}
@@ -355,7 +344,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <AccessibleDialog
           isOpen={true}
-          onClose={() => {}}
           title="Dialog"
           message="Press Space"
           onConfirm={() => {}}
@@ -378,7 +366,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Delete Organization"
           message="This action cannot be undone."
           onConfirm={() => {}}
@@ -394,7 +381,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Confirm Action"
           message="Are you sure you want to proceed? This cannot be undone."
           onConfirm={() => {}}
@@ -409,7 +395,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Confirm"
           message="Content"
           onConfirm={() => {}}
@@ -424,7 +409,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Confirm"
           message="Content"
           onConfirm={() => {}}
@@ -439,7 +423,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Delete"
           message="Are you sure?"
           onConfirm={() => {}}
@@ -466,7 +449,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Dialog"
           message="Click Cancel"
           onConfirm={() => {}}
@@ -487,7 +469,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Dialog"
           message="Click Confirm"
           onConfirm={onConfirm}
@@ -509,7 +490,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Dialog"
           message="Click Cancel"
           onConfirm={onConfirm}
@@ -532,7 +512,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Dialog"
           message="Click Confirm"
           onConfirm={onConfirm}
@@ -553,7 +532,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Important Action"
           message="This requires your attention"
           onConfirm={() => {}}
@@ -570,7 +548,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Confirm Deletion"
           message="Are you absolutely sure?"
           onConfirm={() => {}}
@@ -615,7 +592,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <TestDialog
           isOpen={false}
-          onClose={() => {}}
           title="Hidden Dialog"
           message="Should not be visible"
           onConfirm={() => {}}
@@ -631,7 +607,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       const { container } = render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Visible Dialog"
           message="Should be visible"
           onConfirm={() => {}}
@@ -647,7 +622,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Accessible Dialog"
           message="All content should be accessible"
           onConfirm={() => {}}
@@ -667,7 +641,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Dialog Title"
           message="Body text here"
           onConfirm={() => {}}
@@ -687,7 +660,6 @@ describe('Dialog Accessibility Patterns - Shared Tests', () => {
       render(
         <TestDialog
           isOpen={true}
-          onClose={() => {}}
           title="Dialog"
           message="Click buttons below"
           onConfirm={() => {}}
@@ -712,7 +684,6 @@ describe('Dialog Accessibility - Integration Test', () => {
     const { container, unmount } = render(
       <AccessibleDialog
         isOpen={true}
-        onClose={() => {}}
         title="Delete Organization?"
         message="This action cannot be undone. All associated data will be permanently removed."
         onConfirm={onConfirm}
@@ -759,7 +730,6 @@ describe('Dialog Accessibility - Integration Test', () => {
     const { container: container2 } = render(
       <AccessibleDialog
         isOpen={true}
-        onClose={() => {}}
         title="Delete Organization?"
         message="This action cannot be undone. All associated data will be permanently removed."
         onConfirm={onConfirm}
@@ -777,3 +747,4 @@ describe('Dialog Accessibility - Integration Test', () => {
     }
   });
 });
+

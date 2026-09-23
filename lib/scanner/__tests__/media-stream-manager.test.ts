@@ -89,8 +89,8 @@ describe("MediaStreamManager - Media Acquisition", () => {
 
   it("returns api-not-available when getUserMedia is not supported", async () => {
     // Mock the condition where getUserMedia is not available
-    const originalGetUserMedia = (navigator.mediaDevices as any).getUserMedia;
-    (navigator.mediaDevices as any).getUserMedia = undefined;
+    const originalGetUserMedia = (navigator.mediaDevices as unknown as Record<string, unknown>).getUserMedia;
+    (navigator.mediaDevices as unknown as Record<string, unknown>).getUserMedia = undefined;
 
     const result = await getMediaStream();
 
@@ -100,7 +100,7 @@ describe("MediaStreamManager - Media Acquisition", () => {
     }
 
     // Restore
-    (navigator.mediaDevices as any).getUserMedia = originalGetUserMedia;
+    (navigator.mediaDevices as unknown as Record<string, unknown>).getUserMedia = originalGetUserMedia;
   });
 
   it("returns permission-denied when NotAllowedError is thrown", async () => {
