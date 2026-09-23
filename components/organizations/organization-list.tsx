@@ -3,6 +3,8 @@
 import { useCallback, useState } from "react";
 import { updateOrganization, formatOrganizationStatus, getStatusTone } from "@/lib/api/organizations";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
+import { CursorPagination, type PaginationState } from "@/components/common/cursor-pagination";
+import { ResultsHeading } from "@/components/common/results-heading";
 import { StatusBadge } from "@/components/common/production-ui";
 import { formatMessage } from "@/lib/i18n";
 import type { Organization } from "@/lib/api/generated/v1";
@@ -17,11 +19,19 @@ export function OrganizationList({
   organizations,
   loading,
   token,
+  paginationState,
+  onPreviousPage,
+  onNextPage,
+  focusResults,
   onOrganizationUpdated,
 }: {
   organizations: Organization[];
   loading: boolean;
   token: string;
+  paginationState: PaginationState;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+  focusResults: boolean;
   onOrganizationUpdated: (organization: Organization) => void;
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -56,6 +66,15 @@ export function OrganizationList({
     }
   }, [token, onOrganizationUpdated]);
 
+  const announcement = focusResults && organizations.length > 0
+    ? formatMessage(
+        organizations.length === 1
+          ? "Results updated. Showing {count} organization."
+          : "Results updated. Showing {count} organizations.",
+        { count: organizations.length }
+      )
+    : undefined;
+
   if (loading && organizations.length === 0) {
     return (
       <div className="rounded-md border border-white/10 bg-slate-950 p-4 text-center">
@@ -82,6 +101,14 @@ export function OrganizationList({
             </p>
           </div>
         )}
+
+        {/* Results heading with focus management and announcements */}
+        <ResultsHeading
+          onFocusRequested={focusResults}
+          announcement={announcement}
+        >
+          Organizations
+        </ResultsHeading>
 
         {/* Desktop header */}
         <div className="hidden grid-cols-[2fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
@@ -119,6 +146,19 @@ export function OrganizationList({
             }
           />
         ))}
+      </div>
+
+      {/* Pagination controls */}
+      <div className="mt-4">
+        <CursorPagination
+          state={{
+            ...paginationState,
+            isLoading: loading,
+          }}
+          onPrevious={onPreviousPage}
+          onNext={onNextPage}
+          resultCount={organizations.length}
+        />
       </div>
 
       {confirmAction && (
