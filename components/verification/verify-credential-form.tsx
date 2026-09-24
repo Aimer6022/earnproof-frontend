@@ -1,31 +1,45 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  DragEvent,
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { apiClient } from "@/lib/api/client";
 import {
   VerificationPanel,
   VerifyProofResponse,
 } from "@/components/verification/verification-panel";
 import { VerifyResultSkeleton } from "@/components/common/skeleton/verify-result-skeleton";
+import { checkCredentialFile, parseCredentialJson } from "@/lib/validation/credential-import";
 
 import { defineMessages, formatMessage, formatNumber } from "@/lib/i18n";
-
-const MAX_FILE_BYTES = 32 * 1024; // 32 KB
 
 const messages = defineMessages("verifyCredential", {
   // A whole sentence with a placeholder: the size can move anywhere a
   // translation needs it, and the number itself is locale-formatted.
   fileTooLarge:
     "File exceeds the 32 KB limit ({size} KB). Paste the credential JSON instead.",
+  fileEmpty: "The selected file is empty.",
+  fileUnsupportedType: "Only .json credential files are supported.",
+  fileNameLabel: "Selected file: {name}",
+  removeFileLabel: "Remove selected file {name}",
 });
 
 export function VerifyCredentialForm() {
   const [jsonInput, setJsonInput] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [result, setResult] = useState<VerifyProofResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (error) {
@@ -33,18 +47,26 @@ export function VerifyCredentialForm() {
     }
   }, [error]);
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  function clearSelectedFile() {
+    setFileName(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
 
-    if (file.size > MAX_FILE_BYTES) {
-      setError(
-        formatMessage(messages.fileTooLarge, {
-          size: formatNumber(file.size / 1024, undefined, { maximumFractionDigits: 1 }),
-        }),
-      );
-      // Reset so the same file can be reselected after fixing
-      event.target.value = "";
+  function readCredentialFile(file: File) {
+    const check = checkCredentialFile(file);
+    if (!check.ok) {
+      const errorMessage =
+        check.reason === "oversized"
+          ? formatMessage(messages.fileTooLarge, {
+              size: formatNumber(file.size / 1024, undefined, { maximumFractionDigits: 1 }),
+            })
+          : check.reason === "empty"
+            ? messages.fileEmpty
+            : messages.fileUnsupportedType;
+      setError(errorMessage);
+      clearSelectedFile();
       return;
     }
 
@@ -53,10 +75,57 @@ export function VerifyCredentialForm() {
       const text = e.target?.result;
       if (typeof text === "string") {
         setJsonInput(text);
+        setFileName(file.name);
         setError(null);
       }
     };
+    reader.onerror = () => {
+      setError(messages.fileUnsupportedType);
+      clearSelectedFile();
+    };
     reader.readAsText(file);
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    readCredentialFile(file);
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setIsDraggingOver(false);
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    readCredentialFile(file);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setIsDraggingOver(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    if (event.target === dropZoneRef.current) {
+      setIsDraggingOver(false);
+    }
+  }
+
+  function handleDropZoneKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openFilePicker();
+    }
+  }
+
+  // The file input lives inside the drop zone so it shares the same click
+  // target. Calling `.click()` on it dispatches a real click event that
+  // bubbles right back up to the drop zone's own onClick — without this
+  // guard, opening the picker from a keypress (or from the file-name badge's
+  // remove button) would recurse into the drop zone's click handler.
+  function openFilePicker() {
+    fileInputRef.current?.click();
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -64,34 +133,17 @@ export function VerifyCredentialForm() {
     setError(null);
     setResult(null);
 
-    const trimmed = jsonInput.trim();
-    if (!trimmed) {
-      setError("Enter valid credential JSON.");
+    const parsed = parseCredentialJson(jsonInput);
+    if (!parsed.ok) {
+      setError(
+        parsed.reason === "malformed"
+          ? "Enter valid credential JSON."
+          : "Credential JSON must include a valid id.",
+      );
       return;
     }
 
-    // Parse JSON — never throw unhandled
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      setError("Enter valid credential JSON.");
-      return;
-    }
-
-    // Only extract the id field — discard all other claim fields
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      !("id" in parsed) ||
-      typeof (parsed as Record<string, unknown>).id !== "string" ||
-      !(parsed as Record<string, unknown>).id
-    ) {
-      setError("Credential JSON must include a valid id.");
-      return;
-    }
-
-    const id = (parsed as Record<string, string>).id;
+    const { id } = parsed;
 
     setIsLoading(true);
     try {
@@ -103,7 +155,15 @@ export function VerifyCredentialForm() {
       setError("Verification request failed. Check the credential and API URL.");
     } finally {
       setIsLoading(false);
+      clearSelectedFile();
     }
+  }
+
+  function onCancel() {
+    setJsonInput("");
+    setResult(null);
+    setError(null);
+    clearSelectedFile();
   }
 
   return (
@@ -133,21 +193,43 @@ export function VerifyCredentialForm() {
             onChange={(e) => {
               setJsonInput(e.target.value);
               setError(null);
+              clearSelectedFile();
             }}
             placeholder="Paste a signed credential"
             type="text"
             value={jsonInput}
           />
-          {/* File upload — secondary option, visually subtle */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-300">or</span>
-            <button
-              className="text-xs text-cyan-200 underline underline-offset-2 transition-colors hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
-              onClick={() => fileInputRef.current?.click()}
-              type="button"
-            >
-              upload a .json file
-            </button>
+
+          {/* Drag-and-drop / file-picker import. The file input is nested
+              inside the zone, so its own click event bubbles back up to
+              this div — guard onClick to only react to clicks that didn't
+              originate on the input itself (or its remove button), or
+              `openFilePicker` would call `.click()` on a click it just
+              caused, and so on. */}
+          <div
+            aria-label="Drop a credential .json file here, or press Enter to browse for one"
+            className={`flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-3 py-4 text-center text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 ${
+              isDraggingOver
+                ? "border-cyan-300 bg-cyan-300/10 text-cyan-100"
+                : "border-white/20 text-slate-300 hover:border-white/40"
+            }`}
+            onClick={(clickEvent) => {
+              if (clickEvent.target === fileInputRef.current) return;
+              openFilePicker();
+            }}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onKeyDown={handleDropZoneKeyDown}
+            ref={dropZoneRef}
+            role="button"
+            tabIndex={0}
+          >
+            <span>
+              Drag and drop a <span className="font-medium text-white">.json</span> credential
+              file here, or{" "}
+              <span className="text-cyan-200 underline underline-offset-2">browse</span>
+            </span>
             <input
               accept=".json,application/json"
               aria-label="Upload credential JSON file"
@@ -156,6 +238,23 @@ export function VerifyCredentialForm() {
               ref={fileInputRef}
               type="file"
             />
+            {fileName ? (
+              <span className="mt-1 flex items-center gap-2 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                {formatMessage(messages.fileNameLabel, { name: fileName })}
+                <button
+                  aria-label={formatMessage(messages.removeFileLabel, { name: fileName })}
+                  className="text-slate-400 transition-colors hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+                  onClick={(clickEvent) => {
+                    clickEvent.stopPropagation();
+                    setJsonInput("");
+                    clearSelectedFile();
+                  }}
+                  type="button"
+                >
+                  &times;
+                </button>
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -190,14 +289,26 @@ export function VerifyCredentialForm() {
           </p>
         ) : null}
 
-        <button
-          aria-describedby={error ? "verify-credential-error" : undefined}
-          className="h-11 w-full rounded-lg bg-cyan-300 px-6 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:h-10 sm:w-fit"
-          disabled={isLoading}
-          type="submit"
-        >
-          {isLoading ? "Checking..." : "Validate credential"}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            aria-describedby={error ? "verify-credential-error" : undefined}
+            className="h-11 rounded-lg bg-cyan-300 px-6 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:h-10"
+            disabled={isLoading}
+            type="submit"
+          >
+            {isLoading ? "Checking..." : "Validate credential"}
+          </button>
+          {jsonInput || fileName ? (
+            <button
+              className="h-11 rounded-lg border border-white/15 px-6 text-sm font-medium text-slate-300 transition-colors hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:h-10"
+              disabled={isLoading}
+              onClick={onCancel}
+              type="button"
+            >
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </form>
 
       {isLoading ? <VerifyResultSkeleton /> : <VerificationPanel result={result} />}
