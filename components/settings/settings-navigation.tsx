@@ -11,8 +11,13 @@ const navigationItems = [
   },
   {
     name: "Issuers",
-    href: "/settings/issuers", 
+    href: "/settings/issuers",
     description: "Manage issuers and their organizational relationships",
+  },
+  {
+    name: "Payments",
+    href: "/settings/payments",
+    description: "Sync payments from the network",
   },
 ];
 
