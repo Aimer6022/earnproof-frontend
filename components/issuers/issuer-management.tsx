@@ -226,6 +226,7 @@ export function IssuerManagement() {
           organizations={organizations}
           loading={pagination.isLoading}
           token={session.token}
+          role={session.user.role}
           paginationState={{
             ...pagination.currentPage,
             isLoading: pagination.isLoading,

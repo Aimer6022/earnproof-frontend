@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeading } from "@/components/common/page-heading";
 import { pageContainer } from "@/components/common/production-ui";
 import { PublicShell } from "@/components/layout/public-shell";
+import { ProofLifecycleTimeline } from "@/components/proofs/proof-lifecycle-timeline";
 import { Timestamp } from "@/components/common/timestamp";
 import { PrintableProofSummary } from "@/components/verification/printable-proof-summary";
 import { apiClient } from "@/lib/api/client";
@@ -119,6 +120,19 @@ function VerificationResult({ result }: { result: VerifyProofResponse }) {
           {result.status}
         </div>
 
+      <ProofLifecycleTimeline
+        proof={{
+          result: result.result,
+          issuedAt: result.credential?.issuedAt,
+          expiresAt: result.proof?.expiresAt,
+          revokedAt: result.proof?.revokedAt,
+        }}
+      />
+
+      <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6">
+        <p className="text-sm leading-6 text-slate-300 mb-4">
+          {getStatusMessage(result.result)}
+        </p>
         <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6">
           <p className="text-sm leading-6 text-slate-300 mb-4">
             {getStatusMessage(result.result)}

@@ -1,4 +1,5 @@
 import { apiClient, bearer, retryRead, retryMutation } from "./client";
+import type { AuthUser, Issuer } from "./generated/v1";
 import { captureRevision } from "./revision-tracking";
 import type { Issuer } from "./generated/v1";
 import type { IssuerWithRevision, UpdateIssuerRequestWithRevision } from "./revision-tracking";
@@ -152,4 +153,40 @@ export function getIssuerStatusTone(status: Issuer["status"]): "success" | "warn
     default:
       return "accent";
   }
+}
+
+export type IssuerStatusTransition = "activate" | "suspend" | "revoke";
+
+/**
+ * Which status transitions a role may perform (#141: "Only valid status
+ * transitions are offered to the current role"). ADMIN can perform every
+ * transition. ISSUER is a self-service role limited to activate/suspend —
+ * REVOKE is permanent and punitive, and is ADMIN-only. Every other role
+ * (WORKER, DEVELOPER, or an unrecognized value) gets none; this function
+ * is the single source of truth both the list UI and any future issuer
+ * admin surface should consult, rather than duplicating this policy.
+ */
+const ROLE_TRANSITIONS: Partial<Record<AuthUser["role"], readonly IssuerStatusTransition[]>> = {
+  ADMIN: ["activate", "suspend", "revoke"],
+  ISSUER: ["activate", "suspend"],
+};
+
+/**
+ * Takes an arbitrary string, not just `AuthUser["role"]`: the caller's
+ * role usually comes from a locally-stored session object (untrusted,
+ * `JSON.parse`'d input), so an unrecognized value must degrade to "no
+ * transitions allowed" rather than being a type error at the call site.
+ */
+export function allowedIssuerTransitions(
+  role: string | undefined,
+): readonly IssuerStatusTransition[] {
+  if (!role) return [];
+  return ROLE_TRANSITIONS[role as AuthUser["role"]] ?? [];
+}
+
+export function canPerformIssuerTransition(
+  role: string | undefined,
+  transition: IssuerStatusTransition,
+): boolean {
+  return allowedIssuerTransitions(role).includes(transition);
 }
