@@ -69,6 +69,14 @@ export const WIZARD_STEPS = {
 
 export type WizardStep = typeof WIZARD_STEPS[keyof typeof WIZARD_STEPS];
 
+export const STEP_ORDER: WizardStep[] = [
+  WIZARD_STEPS.INTERVAL_CONFIG,
+  WIZARD_STEPS.PERIOD_CONFIG,
+  WIZARD_STEPS.PAYMENT_SELECTION,
+  WIZARD_STEPS.COVERAGE_ANALYSIS,
+  WIZARD_STEPS.CONFIRMATION,
+];
+
 export const STEP_LABELS: Record<WizardStep, string> = {
   [WIZARD_STEPS.INTERVAL_CONFIG]: "Interval Configuration",
   [WIZARD_STEPS.PERIOD_CONFIG]: "Period Configuration",

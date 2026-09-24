@@ -7,34 +7,7 @@ import { OneTimeSecret } from "./one-time-secret";
 import { getApiKeysPaginated, type CreateApiKeyResponse } from "@/lib/api/keys";
 import { usePagination } from "@/lib/hooks/use-pagination";
 import type { ApiKey } from "@/lib/api/generated/v1";
-
-const SESSION_KEY = "earnproof.session";
-
-type SessionData = {
-  token: string;
-  user: {
-    id: string;
-    role: string;
-  };
-};
-
-function readStoredSession(): SessionData | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const stored = window.localStorage.getItem(SESSION_KEY);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(stored) as SessionData;
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-}
+import { readStoredSession, type Session as SessionData } from "@/lib/session";
 
 export function ApiKeyManagement() {
   const [session] = useState<SessionData | null>(() => readStoredSession());

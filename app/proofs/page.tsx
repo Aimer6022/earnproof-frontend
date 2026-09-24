@@ -54,6 +54,32 @@ export default function CreateProofPage() {
               Create Recurring Proof →
             </div>
           </Link>
+
+          <Link
+            href="/proofs/aggregate-earnings"
+            className="block rounded-lg border border-white/10 bg-white/[0.04] p-6 hover:bg-white/[0.06] transition"
+          >
+            <h2 className="text-xl font-semibold text-white">Aggregate Earnings Proof</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Combine multiple eligible sources into a single verifiable earnings proof without disclosing individual amounts.
+            </p>
+            <div className="mt-4 text-xs font-semibold text-cyan-300">
+              Create Aggregate Proof →
+            </div>
+          </Link>
+
+          <Link
+            href="/proofs/income-range"
+            className="block rounded-lg border border-white/10 bg-white/[0.04] p-6 hover:bg-white/[0.06] transition"
+          >
+            <h2 className="text-xl font-semibold text-white">Income Range Proof</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Prove your income fell within a chosen range over a time period without disclosing the exact amount.
+            </p>
+            <div className="mt-4 text-xs font-semibold text-cyan-300">
+              Create Range Proof →
+            </div>
+          </Link>
         </div>
         <ProofErrorBoundary>
           <CreateProofFlow />

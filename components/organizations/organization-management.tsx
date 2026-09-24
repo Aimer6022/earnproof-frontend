@@ -8,34 +8,7 @@ import { OrganizationEditForm } from "./organization-edit-form";
 import { LifecycleConfirmationDialog } from "./lifecycle-confirmation-dialog";
 import { getOrganizations, performLifecycleAction, type LifecycleAction } from "@/lib/api/organizations";
 import type { OrganizationWithRevision } from "@/lib/api/organizations";
-
-const SESSION_KEY = "earnproof.session";
-
-type SessionData = {
-  token: string;
-  user: {
-    id: string;
-    role: string;
-  };
-};
-
-function readStoredSession(): SessionData | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const stored = window.localStorage.getItem(SESSION_KEY);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(stored) as SessionData;
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-}
+import { readStoredSession, type Session as SessionData } from "@/lib/session";
 
 export function OrganizationManagement() {
   const [session] = useState<SessionData | null>(() => readStoredSession());

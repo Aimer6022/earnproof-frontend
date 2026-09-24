@@ -1,38 +1,43 @@
 /**
- * Idempotency-key lifecycle for the minimum-income proof creation request.
+ * Idempotency-key lifecycle shared by every proof-creation request
+ * (minimum-income, recurring-income, aggregate-earnings, income-range).
  *
- * The backend contract for POST /proofs/minimum-income does not yet define
- * an Idempotency-Key header (see lib/api/openapi/earnproof-api.v1.json) —
- * this is deliberately forward-compatible and defense-in-depth on the
+ * The backend contract for these POST /proofs/* endpoints does not yet
+ * define an Idempotency-Key header (see lib/api/openapi/earnproof-api.v1.json)
+ * — this is deliberately forward-compatible and defense-in-depth on the
  * frontend side: sending a stable key for retries of the same submission
  * intent is harmless if the backend ignores the header today, and lets it
  * dedupe safely the moment it starts honoring one, without a frontend
  * change. It does not, by itself, guarantee server-side deduplication.
+ *
+ * `ProofIntent` is intentionally just "a JSON-serializable record" rather
+ * than one fixed shape: each proof type's submission payload differs
+ * (thresholdAmount vs. lower/upperBound vs. sources+policy), but all of them
+ * need the same treatment — a stable signature that a same-intent retry can
+ * be recognized by. `selectedPaymentIds`/`sourceIds`, if present, are
+ * sorted so key ordering in a caller's selection doesn't change the
+ * signature; every other field is compared as-is.
  */
-export type ProofIntent = {
-  selectedPaymentIds: string[];
-  thresholdAmount: string;
-  assetCode: string;
-  assetIssuer?: string;
-  periodStart: string;
-  periodEnd: string;
-};
+export type ProofIntent = Record<string, unknown>;
 
 export type IdempotencyState = {
   key: string;
   signature: string;
 };
 
-/** Stable across payment-id ordering; changes if any field of the intent changes. */
+const ORDER_INSENSITIVE_ARRAY_FIELDS = ["selectedPaymentIds", "sourceIds"];
+
+/** Stable across the listed array fields' ordering; changes if any field of the intent changes. */
 export function intentSignature(intent: ProofIntent): string {
-  return JSON.stringify({
-    selectedPaymentIds: [...intent.selectedPaymentIds].sort(),
-    thresholdAmount: intent.thresholdAmount,
-    assetCode: intent.assetCode,
-    assetIssuer: intent.assetIssuer ?? null,
-    periodStart: intent.periodStart,
-    periodEnd: intent.periodEnd,
-  });
+  const normalized: Record<string, unknown> = {};
+  for (const key of Object.keys(intent).sort()) {
+    const value = intent[key];
+    normalized[key] =
+      ORDER_INSENSITIVE_ARRAY_FIELDS.includes(key) && Array.isArray(value)
+        ? [...value].sort()
+        : value ?? null;
+  }
+  return JSON.stringify(normalized);
 }
 
 function generateKey(): string {
