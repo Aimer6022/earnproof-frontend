@@ -3,6 +3,25 @@ import { buildSecurityPolicy, nextHeaderList } from "./config/security-headers";
 import { cacheHeaderRules } from "./config/cache-headers";
 
 const securityPolicy = buildSecurityPolicy();
+// Static fallback/mirror of the embeddable verification widget's CSP
+// carve-out (issue #196). `proxy.ts` is what actually enforces this
+// per-request (it also attaches the per-request nonce), but empirically
+// (`next start` + inspecting real response headers for both a normal
+// route and /embed/v1/verify/...) Next.js 16 layers `next.config.ts`'s
+// static `headers()` output back onto the response in addition to
+// whatever middleware set, keyed per header — so a header middleware sets
+// is replaced, but a header middleware stays silent on (or even
+// explicitly `.delete()`s) is NOT removed if a matching config rule still
+// sets it. That means the global "/:path*" rule below, if left matching
+// /embed/* too, would always re-add a stale `X-Frame-Options: DENY` to
+// embed responses even though proxy.ts asks for it to be absent —
+// contradicting `frame-ancestors *` instead of honoring it. The fix is
+// for the GLOBAL rule's `source` to simply not match /embed/* at all
+// (via the same negative-lookahead style already used by proxy.ts's own
+// matcher), and for a second, non-overlapping rule to supply the embed
+// policy — so there is no header-key overlap between the two rules to
+// reason about.
+const embedSecurityPolicy = buildSecurityPolicy({ allowEmbedding: true });
 const publicEnv = securityPolicy.env;
 const nextPublicEnv: Record<string, string> = {
   NEXT_PUBLIC_APP_URL: publicEnv.NEXT_PUBLIC_APP_URL,
@@ -46,8 +65,24 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/:path*",
+        // Everything EXCEPT /embed/* gets the strict, unmodified policy —
+        // see the long comment above `embedSecurityPolicy` for why this
+        // must be a non-overlapping `source` rather than a second rule
+        // relying on "last rule wins" for a shared path.
+        source: "/((?!embed/).*)",
         headers: nextHeaderList(securityPolicy).map((header) => ({
+          key: header.key,
+          value: header.value,
+        })),
+      },
+      {
+        // The ONE narrowly-scoped exception (issue #196): allows framing
+        // for the embeddable public verification widget only. Every other
+        // directive/header is identical to the strict policy — see
+        // `config/security-headers.ts`'s `allowEmbedding` option and
+        // tests/security/headers.test.ts.
+        source: "/embed/:path*",
+        headers: nextHeaderList(embedSecurityPolicy).map((header) => ({
           key: header.key,
           value: header.value,
         })),
