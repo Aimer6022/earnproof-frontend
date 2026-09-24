@@ -51,3 +51,21 @@ if (typeof URL.createObjectURL === "undefined") {
 if (typeof URL.revokeObjectURL === "undefined") {
   URL.revokeObjectURL = jest.fn() as unknown as typeof URL.revokeObjectURL;
 }
+
+// jsdom doesn't implement matchMedia. Components that gate print-only
+// content on `window.matchMedia("print").matches` (see usePrintMode.ts)
+// need this to exist and report "not printing" so that content isn't
+// rendered into the DOM during tests, where it would otherwise duplicate
+// on-screen text and break getByText/getByRole uniqueness assumptions.
+if (typeof window.matchMedia === "undefined") {
+  window.matchMedia = jest.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })) as unknown as typeof window.matchMedia;
+}

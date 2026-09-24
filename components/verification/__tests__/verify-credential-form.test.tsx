@@ -95,3 +95,156 @@ describe("VerifyCredentialForm loading state", () => {
     expect(screen.queryByText("Looking up proof...")).not.toBeInTheDocument();
   });
 });
+
+function jsonFile(name: string, contents: unknown, type = "application/json") {
+  return new File([JSON.stringify(contents)], name, { type });
+}
+
+describe("VerifyCredentialForm file import (#143)", () => {
+  beforeEach(() => {
+    mockedApiClient.mockReset();
+  });
+
+  it("populates the credential JSON field from a valid .json file via the file input", async () => {
+    render(<VerifyCredentialForm />);
+
+    const fileInput = screen.getByLabelText("Upload credential JSON file");
+    const file = jsonFile("credential.json", { id: "cred-1" });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Credential JSON")).toHaveValue(JSON.stringify({ id: "cred-1" }));
+    });
+    expect(screen.getByText(/Selected file: credential\.json/)).toBeInTheDocument();
+  });
+
+  it("populates the credential JSON field from a file dropped on the drop zone", async () => {
+    render(<VerifyCredentialForm />);
+
+    const dropZone = screen.getByRole("button", {
+      name: "Drop a credential .json file here, or press Enter to browse for one",
+    });
+    const file = jsonFile("credential.json", { id: "cred-2" });
+
+    fireEvent.drop(dropZone, { dataTransfer: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Credential JSON")).toHaveValue(JSON.stringify({ id: "cred-2" }));
+    });
+  });
+
+  it("rejects a file with an unsupported extension before reading it", async () => {
+    render(<VerifyCredentialForm />);
+
+    const fileInput = screen.getByLabelText("Upload credential JSON file");
+    const file = new File(["not json"], "credential.exe", { type: "application/json" });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Only .json credential files are supported.");
+    });
+    expect(screen.getByLabelText("Credential JSON")).toHaveValue("");
+    expect(screen.queryByText(/Selected file:/)).not.toBeInTheDocument();
+  });
+
+  it("rejects an oversized file before reading it", async () => {
+    render(<VerifyCredentialForm />);
+
+    const fileInput = screen.getByLabelText("Upload credential JSON file");
+    const oversized = new File(["x".repeat(32 * 1024 + 1)], "credential.json", {
+      type: "application/json",
+    });
+
+    fireEvent.change(fileInput, { target: { files: [oversized] } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/exceeds the 32 KB limit/);
+    });
+    expect(screen.getByLabelText("Credential JSON")).toHaveValue("");
+  });
+
+  it("clears the selected file when Cancel is pressed", async () => {
+    const user = userEvent.setup();
+    render(<VerifyCredentialForm />);
+
+    const fileInput = screen.getByLabelText("Upload credential JSON file");
+    fireEvent.change(fileInput, { target: { files: [jsonFile("credential.json", { id: "cred-1" })] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Selected file: credential\.json/)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByText(/Selected file:/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Credential JSON")).toHaveValue("");
+    expect((fileInput as HTMLInputElement).value).toBe("");
+  });
+
+  it("clears the selected file after a successful verification", async () => {
+    mockedApiClient.mockResolvedValue(VALID_RESULT);
+    render(<VerifyCredentialForm />);
+
+    const fileInput = screen.getByLabelText("Upload credential JSON file");
+    fireEvent.change(fileInput, { target: { files: [jsonFile("credential.json", { id: "cred-1" })] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Selected file: credential\.json/)).toBeInTheDocument();
+    });
+
+    fireEvent.submit(screen.getByRole("button", { name: "Validate credential" }).closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Selected file:/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("removes the selected file via its own remove button without submitting the form", async () => {
+    const user = userEvent.setup();
+    render(<VerifyCredentialForm />);
+
+    const fileInput = screen.getByLabelText("Upload credential JSON file");
+    fireEvent.change(fileInput, { target: { files: [jsonFile("credential.json", { id: "cred-1" })] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Selected file: credential\.json/)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByLabelText("Remove selected file credential.json"));
+
+    expect(screen.queryByText(/Selected file:/)).not.toBeInTheDocument();
+    expect(mockedApiClient).not.toHaveBeenCalled();
+  });
+
+  it("is operable from the keyboard: Enter on the drop zone opens the file picker", () => {
+    render(<VerifyCredentialForm />);
+
+    const dropZone = screen.getByRole("button", {
+      name: "Drop a credential .json file here, or press Enter to browse for one",
+    });
+    const fileInput = screen.getByLabelText("Upload credential JSON file") as HTMLInputElement;
+    const clickSpy = jest.spyOn(fileInput, "click");
+
+    dropZone.focus();
+    fireEvent.keyDown(dropZone, { key: "Enter" });
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a pasted-JSON selection when a new file is chosen", async () => {
+    render(<VerifyCredentialForm />);
+
+    fireEvent.change(screen.getByLabelText("Credential JSON"), {
+      target: { value: JSON.stringify({ id: "pasted" }) },
+    });
+
+    const fileInput = screen.getByLabelText("Upload credential JSON file");
+    fireEvent.change(fileInput, { target: { files: [jsonFile("credential.json", { id: "from-file" })] } });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Credential JSON")).toHaveValue(JSON.stringify({ id: "from-file" }));
+    });
+  });
+});

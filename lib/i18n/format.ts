@@ -109,6 +109,42 @@ export function formatDateTime(
 }
 
 /**
+ * A date and time with the viewer's timezone disclosed (#151).
+ *
+ * `formatDateTime` alone is ambiguous: "Sep 24, 2026, 2:00 PM" reads as a
+ * local wall-clock time, but says nothing about *which* timezone that is,
+ * and a proof, payment or API key's issued/expiry instant is meaningful
+ * across timezones (an issuer, a verifier and a worker are rarely in the
+ * same one). `timeZoneName: "short"` appends the abbreviation the
+ * `Intl.DateTimeFormat` already resolves for the runtime's timezone (or an
+ * explicit IANA zone, for tests), e.g. "Sep 24, 2026, 2:00 PM PDT".
+ */
+export function formatDateTimeWithZone(
+  value: Date | string | number,
+  locale: string = DEFAULT_LOCALE,
+  timeZone?: string,
+): string {
+  const date = toDate(value);
+  if (!isValidDate(date)) return fallback(value);
+  return cached(`datetime-tz|${locale}|${timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, {
+      // `dateStyle`/`timeStyle` cannot be combined with `timeZoneName` per
+      // ECMA-402 (some engines throw "Invalid option", others silently
+      // ignore one side) — the component options below are the
+      // `dateStyle: "medium", timeStyle: "short"` equivalent, written out
+      // so `timeZoneName` can be added alongside them.
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+      ...(timeZone ? { timeZone } : {}),
+    }),
+  ).format(date);
+}
+
+/**
  * A date range as one locale-formatted phrase.
  *
  * This replaces `` `${formatDate(a)} to ${formatDate(b)}` ``: the connector,

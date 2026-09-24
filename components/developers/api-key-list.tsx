@@ -3,10 +3,11 @@
 import { useCallback, useState } from "react";
 import { formatApiKeyPrefix, rotateApiKey, revokeApiKey } from "@/lib/api/keys";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
+import { Timestamp } from "@/components/common/timestamp";
 import { CursorPagination, type PaginationState } from "@/components/common/cursor-pagination";
 import { ResultsHeading } from "@/components/common/results-heading";
 import { OneTimeSecret } from "./one-time-secret";
-import { formatDate, formatMessage } from "@/lib/i18n";
+import { formatMessage } from "@/lib/i18n";
 import type { ApiKey } from "@/lib/api/generated/v1";
 
 const apiKeyActionTitles = {
@@ -224,11 +225,6 @@ function ApiKeyRow({
   onRotate: () => void;
   onRevoke: () => void;
 }) {
-  const formatOptionalDate = (dateString: string | null | undefined) => {
-    if (!dateString) return "Never";
-    return formatDate(dateString);
-  };
-
   const isExpired = apiKey.expiresAt && new Date(apiKey.expiresAt) < new Date();
 
   return (
@@ -272,7 +268,7 @@ function ApiKeyRow({
       <div>
         <div className="text-slate-300 md:hidden font-semibold">Expires:</div>
         <div className={`${isExpired ? "text-rose-300" : "text-slate-400"}`}>
-          {formatOptionalDate(apiKey.expiresAt)}
+          {apiKey.expiresAt ? <Timestamp value={apiKey.expiresAt} /> : "Never"}
         </div>
       </div>
 
