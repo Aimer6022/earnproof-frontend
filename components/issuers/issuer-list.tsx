@@ -3,6 +3,8 @@
 import { useCallback, useState } from "react";
 import { updateIssuer, formatIssuerStatus, getIssuerStatusTone, getIssuer } from "@/lib/api/issuers";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
+import { CursorPagination, type PaginationState } from "@/components/common/cursor-pagination";
+import { ResultsHeading } from "@/components/common/results-heading";
 import { ResolveConflictDialog } from "@/components/forms/resolve-conflict-dialog";
 import { StatusBadge } from "@/components/common/production-ui";
 import { formatMessage } from "@/lib/i18n";
@@ -22,12 +24,21 @@ export function IssuerList({
   organizations,
   loading,
   token,
+  paginationState,
+  onPreviousPage,
+  onNextPage,
+  focusResults,
   onIssuerUpdated,
 }: {
   issuers: IssuerWithRevision[];
   organizations: Organization[];
   loading: boolean;
   token: string;
+  paginationState: PaginationState;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+  focusResults: boolean;
+  onIssuerUpdated: (issuer: Issuer) => void;
   onIssuerUpdated: (issuer: IssuerWithRevision) => void;
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -124,6 +135,15 @@ export function IssuerList({
     return org?.name || "Unknown Organization";
   }, [organizations]);
 
+  const announcement = focusResults && issuers.length > 0
+    ? formatMessage(
+        issuers.length === 1
+          ? "Results updated. Showing {count} issuer."
+          : "Results updated. Showing {count} issuers.",
+        { count: issuers.length }
+      )
+    : undefined;
+
   if (loading && issuers.length === 0) {
     return (
       <div className="rounded-md border border-white/10 bg-slate-950 p-4 text-center">
@@ -150,6 +170,14 @@ export function IssuerList({
             </p>
           </div>
         )}
+
+        {/* Results heading with focus management and announcements */}
+        <ResultsHeading
+          onFocusRequested={focusResults}
+          announcement={announcement}
+        >
+          Issuers
+        </ResultsHeading>
 
         {/* Desktop header */}
         <div className="hidden grid-cols-[2fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
@@ -188,6 +216,19 @@ export function IssuerList({
             }
           />
         ))}
+      </div>
+
+      {/* Pagination controls */}
+      <div className="mt-4">
+        <CursorPagination
+          state={{
+            ...paginationState,
+            isLoading: loading,
+          }}
+          onPrevious={onPreviousPage}
+          onNext={onNextPage}
+          resultCount={issuers.length}
+        />
       </div>
 
       {confirmAction && (

@@ -120,9 +120,9 @@
       "reviewedOn": "2026-09-02"
     },
     "/verify/scan": {
-      "clientJsBytes": 625000,
-      "reason": "Camera scan surface plus the QR payload validator; no scanner library ships in first load.",
-      "reviewedOn": "2026-08-28"
+      "clientJsBytes": 631000,
+      "reason": "Camera scan surface plus the QR payload validator and the new scanner lifecycle state machine (improved error handling, resource leak prevention, device disconnect detection). No scanner library ships in first load.",
+      "reviewedOn": "2026-09-23"
     }
   }
 }

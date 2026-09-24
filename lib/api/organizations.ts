@@ -16,6 +16,13 @@ export type UpdateOrganizationRequest = {
   status?: Organization["status"];
 };
 
+export type PaginatedOrganizationsResponse = {
+  items: Organization[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+};
+
+export async function getOrganizations(token: string, signal: AbortSignal): Promise<Organization[]> {
 // Re-export revision-aware types for use in forms
 export type { OrganizationWithRevision, UpdateOrganizationRequestWithRevision };
 
@@ -42,6 +49,28 @@ export async function getOrganizations(token: string, signal: AbortSignal): Prom
     // Capture revision for each organization at load time
     return orgs.map(org => captureRevision(org));
   }, signal);
+}
+
+export async function getOrganizationsPaginated(
+  token: string,
+  pageSize: number = 10,
+  nextCursor?: string,
+  previousCursor?: string,
+  signal?: AbortSignal
+): Promise<PaginatedOrganizationsResponse> {
+  return retryRead(async (signal) => {
+    const params = new URLSearchParams();
+    params.append("limit", String(pageSize));
+    if (nextCursor) params.append("next_cursor", nextCursor);
+    if (previousCursor) params.append("previous_cursor", previousCursor);
+
+    return apiClient<PaginatedOrganizationsResponse>({
+      path: `/organizations?${params.toString()}`,
+      method: "GET",
+      headers: bearer(token),
+      signal,
+    });
+  }, signal!);
 }
 
 export async function getOrganization(

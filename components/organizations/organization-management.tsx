@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CreateOrganizationForm } from "./create-organization-form";
 import { OrganizationList } from "./organization-list";
+import { getOrganizationsPaginated } from "@/lib/api/organizations";
+import { usePagination } from "@/lib/hooks/use-pagination";
+import type { Organization } from "@/lib/api/generated/v1";
 import { OrganizationEditForm } from "./organization-edit-form";
 import { LifecycleConfirmationDialog } from "./lifecycle-confirmation-dialog";
 import { getOrganizations, performLifecycleAction, type LifecycleAction } from "@/lib/api/organizations";
@@ -36,6 +39,7 @@ function readStoredSession(): SessionData | null {
 
 export function OrganizationManagement() {
   const [session] = useState<SessionData | null>(() => readStoredSession());
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationWithRevision[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,39 +51,74 @@ export function OrganizationManagement() {
   } | null>(null);
   const [lifecycleLoading, setLifecycleLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const requestCounterRef = useRef(0);
   const sessionToken = session?.token ?? null;
 
-  const loadOrganizations = useCallback(async () => {
-    if (!sessionToken) {
-      return;
-    }
+  const pagination = usePagination({ pageSize: 10 });
 
-    // Cancel any pending request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const orgs = await getOrganizations(sessionToken, controller.signal);
-      if (!controller.signal.aborted) {
-        setOrganizations(orgs);
+  const loadOrganizations = useCallback(
+    async (navigateToNext: boolean = false, navigateToPrev: boolean = false) => {
+      if (!sessionToken) {
+        return;
       }
-    } catch {
-      if (!controller.signal.aborted) {
-        setError("Failed to load organizations. Please try again.");
+
+      // Cancel any pending request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
-    } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      requestCounterRef.current += 1;
+      const requestId = `req-${requestCounterRef.current}`;
+
+      pagination.setLoading(true);
+      setError(null);
+
+      try {
+        let nextCursor = pagination.currentPage.nextCursor ?? undefined;
+        let previousCursor = pagination.currentPage.previousCursor ?? undefined;
+
+        // Handle navigation requests
+        if (navigateToNext && pagination.currentPage.nextCursor) {
+          previousCursor = pagination.currentPage.nextCursor;
+          nextCursor = undefined;
+        } else if (navigateToPrev && pagination.currentPage.previousCursor) {
+          nextCursor = pagination.currentPage.previousCursor;
+          previousCursor = undefined;
+        }
+
+        const response = await getOrganizationsPaginated(
+          sessionToken,
+          pagination.pageSize,
+          nextCursor,
+          previousCursor,
+          controller.signal
+        );
+
+        if (!controller.signal.aborted) {
+          setOrganizations(response.items);
+          pagination.setPageState(
+            {
+              nextCursor: response.nextCursor,
+              previousCursor: response.previousCursor,
+            },
+            requestId
+          );
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setError("Failed to load organizations. Please try again.");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          pagination.setLoading(false);
+          pagination.clearUserInitiated();
+        }
       }
-    }
-  }, [sessionToken]);
+    },
+    [sessionToken, pagination]
+  );
 
   useEffect(() => {
     let active = true;
@@ -89,7 +128,7 @@ export function OrganizationManagement() {
         void loadOrganizations();
       }
     });
-    
+
     // Cleanup on unmount
     return () => {
       active = false;
@@ -111,6 +150,15 @@ export function OrganizationManagement() {
     setEditingOrgId(null);
   }, []);
 
+  const handlePreviousPage = useCallback(() => {
+    pagination.goToPreviousPage();
+    void loadOrganizations(false, true);
+  }, [pagination, loadOrganizations]);
+
+  const handleNextPage = useCallback(() => {
+    pagination.goToNextPage();
+    void loadOrganizations(true, false);
+  }, [pagination, loadOrganizations]);
   const handleLifecycleAction = useCallback(async () => {
     if (!lifecycleAction || !sessionToken) {
       return;
@@ -188,11 +236,11 @@ export function OrganizationManagement() {
           </div>
           <button
             className="h-10 rounded-md border border-white/15 px-4 text-xs font-semibold text-white disabled:opacity-50"
-            disabled={loading}
-            onClick={loadOrganizations}
+            disabled={pagination.isLoading}
+            onClick={() => loadOrganizations()}
             type="button"
           >
-            {loading ? "Loading..." : "Refresh"}
+            {pagination.isLoading ? "Loading..." : "Refresh"}
           </button>
         </div>
 
@@ -204,6 +252,19 @@ export function OrganizationManagement() {
           </div>
         )}
 
+        <OrganizationList
+          organizations={organizations}
+          loading={pagination.isLoading}
+          token={session.token}
+          paginationState={{
+            ...pagination.currentPage,
+            isLoading: pagination.isLoading,
+          }}
+          onPreviousPage={handlePreviousPage}
+          onNextPage={handleNextPage}
+          focusResults={pagination.wasUserInitiated}
+          onOrganizationUpdated={handleOrganizationUpdated}
+        />
         {editingOrgId ? (
           <div className="grid gap-6 rounded-lg border border-white/10 bg-white/[0.04] p-5">
             <div>

@@ -14,6 +14,13 @@ export type UpdateIssuerRequest = {
   organizationId?: string;
 };
 
+export type PaginatedIssuersResponse = {
+  items: Issuer[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+};
+
+export async function getIssuers(token: string, signal: AbortSignal): Promise<Issuer[]> {
 // Re-export revision-aware types for use in forms
 export type { IssuerWithRevision, UpdateIssuerRequestWithRevision };
 
@@ -28,6 +35,28 @@ export async function getIssuers(token: string, signal: AbortSignal): Promise<Is
     // Capture revision for each issuer at load time
     return issuers.map(issuer => captureRevision(issuer));
   }, signal);
+}
+
+export async function getIssuersPaginated(
+  token: string,
+  pageSize: number = 10,
+  nextCursor?: string,
+  previousCursor?: string,
+  signal?: AbortSignal
+): Promise<PaginatedIssuersResponse> {
+  return retryRead(async (signal) => {
+    const params = new URLSearchParams();
+    params.append("limit", String(pageSize));
+    if (nextCursor) params.append("next_cursor", nextCursor);
+    if (previousCursor) params.append("previous_cursor", previousCursor);
+
+    return apiClient<PaginatedIssuersResponse>({
+      path: `/issuers?${params.toString()}`,
+      method: "GET",
+      headers: bearer(token),
+      signal,
+    });
+  }, signal!);
 }
 
 export async function getIssuer(

@@ -3,6 +3,8 @@
 import { useCallback, useState } from "react";
 import { updateOrganization, formatOrganizationStatus, getStatusTone, getOrganization, performLifecycleAction, type LifecycleAction } from "@/lib/api/organizations";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
+import { CursorPagination, type PaginationState } from "@/components/common/cursor-pagination";
+import { ResultsHeading } from "@/components/common/results-heading";
 import { ResolveConflictDialog } from "@/components/forms/resolve-conflict-dialog";
 import { StatusBadge } from "@/components/common/production-ui";
 import { formatMessage } from "@/lib/i18n";
@@ -14,6 +16,10 @@ export function OrganizationList({
   organizations,
   loading,
   token,
+  paginationState,
+  onPreviousPage,
+  onNextPage,
+  focusResults,
   onOrganizationUpdated,
   onEditOrganization,
   onLifecycleAction,
@@ -21,6 +27,11 @@ export function OrganizationList({
   organizations: OrganizationWithRevision[];
   loading: boolean;
   token: string;
+  paginationState: PaginationState;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+  focusResults: boolean;
+  onOrganizationUpdated: (organization: Organization) => void;
   onOrganizationUpdated: (organization: OrganizationWithRevision) => void;
   onEditOrganization: (organizationId: string) => void;
   onLifecycleAction: (action: LifecycleAction, organizationId: string, organizationName: string) => void;
@@ -116,6 +127,15 @@ export function OrganizationList({
     }
   }, [token, onOrganizationUpdated, showConflict]);
 
+  const announcement = focusResults && organizations.length > 0
+    ? formatMessage(
+        organizations.length === 1
+          ? "Results updated. Showing {count} organization."
+          : "Results updated. Showing {count} organizations.",
+        { count: organizations.length }
+      )
+    : undefined;
+
   if (loading && organizations.length === 0) {
     return (
       <div className="rounded-md border border-white/10 bg-slate-950 p-4 text-center">
@@ -133,6 +153,95 @@ export function OrganizationList({
   }
 
   return (
+    <>
+      <div className="grid gap-3">
+        {error && (
+          <div className="rounded-md border border-rose-300/30 bg-rose-300/10 p-3">
+            <p className="text-sm text-rose-200" role="alert">
+              {error}
+            </p>
+          </div>
+        )}
+
+        {/* Results heading with focus management and announcements */}
+        <ResultsHeading
+          onFocusRequested={focusResults}
+          announcement={announcement}
+        >
+          Organizations
+        </ResultsHeading>
+
+        {/* Desktop header */}
+        <div className="hidden grid-cols-[2fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
+          <div>Organization</div>
+          <div>Status</div>
+          <div>Created</div>
+          <div>Actions</div>
+        </div>
+
+        {organizations.map((org) => (
+          <OrganizationRow
+            key={org.id}
+            organization={org}
+            isLoading={actionLoading === org.id}
+            onSuspend={() => 
+              setConfirmAction({
+                type: "suspend",
+                organizationId: org.id,
+                organizationName: org.name,
+              })
+            }
+            onActivate={() => 
+              setConfirmAction({
+                type: "activate",
+                organizationId: org.id,
+                organizationName: org.name,
+              })
+            }
+            onRevoke={() =>
+              setConfirmAction({
+                type: "revoke",
+                organizationId: org.id,
+                organizationName: org.name,
+              })
+            }
+          />
+        ))}
+      </div>
+
+      {/* Pagination controls */}
+      <div className="mt-4">
+        <CursorPagination
+          state={{
+            ...paginationState,
+            isLoading: loading,
+          }}
+          onPrevious={onPreviousPage}
+          onNext={onNextPage}
+          resultCount={organizations.length}
+        />
+      </div>
+
+      {confirmAction && (
+        <ConfirmationDialog
+          title={formatMessage("{action} Organization", {
+            action: organizationActionLabels[confirmAction.type],
+          })}
+          message={
+            confirmAction.type === "revoke"
+              ? formatMessage(
+                  'Are you sure you want to revoke "{organizationName}"? This action cannot be undone and will permanently disable the organization.',
+                  { organizationName: confirmAction.organizationName },
+                )
+              : confirmAction.type === "suspend"
+              ? formatMessage(
+                  'Are you sure you want to suspend "{organizationName}"? This will temporarily disable organization operations.',
+                  { organizationName: confirmAction.organizationName },
+                )
+              : formatMessage(
+                  'Are you sure you want to activate "{organizationName}"? This will enable organization operations.',
+                  { organizationName: confirmAction.organizationName },
+                )
     <div className="grid gap-3">
       {/* Desktop header */}
       <div className="hidden grid-cols-[2fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
