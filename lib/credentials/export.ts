@@ -1,5 +1,6 @@
 export const CREDENTIAL_EXPORT_FILENAME = "earnproof-credential.json";
 export const VERIFICATION_LINK_EXPORT_FILENAME = "earnproof-verification-link.txt";
+export const AUDIT_LOG_EXPORT_FILENAME = "earnproof-audit-log.json";
 
 const UNSAFE_FILENAME_PATTERN =
   /G[A-Z0-9]{55}|0x[a-fA-F0-9]{8,}|ep[_-][A-Za-z0-9._:-]+|EP-[A-Za-z0-9._:-]+/i;
@@ -78,7 +79,7 @@ export type ExportableProof = {
 };
 
 export type DisclosureWarning = {
-  field: "amount" | "sender";
+  field: "amount" | "sender" | "actor";
   message: string;
 };
 
@@ -105,7 +106,11 @@ function pick<T extends Record<string, unknown>>(
 }
 
 export function isSafeExportFilename(filename: string): boolean {
-  if (filename !== CREDENTIAL_EXPORT_FILENAME && filename !== VERIFICATION_LINK_EXPORT_FILENAME) {
+  if (
+    filename !== CREDENTIAL_EXPORT_FILENAME &&
+    filename !== VERIFICATION_LINK_EXPORT_FILENAME &&
+    filename !== AUDIT_LOG_EXPORT_FILENAME
+  ) {
     return false;
   }
   return !UNSAFE_FILENAME_PATTERN.test(filename);
@@ -231,6 +236,51 @@ export function buildVerificationLinkExport(verificationUrl: string): ArtifactEx
     warnings: [],
     body: verificationUrl,
     mimeType: "text/plain",
+  };
+}
+
+export type ExportableAuditLogEntry = {
+  id: string;
+  actor: string;
+  action: string;
+  resource: string;
+  occurredAt: string;
+  entryHash: string;
+};
+
+/**
+ * Actor identifiers are the one field in an audit entry likely to carry PII
+ * (an email, a wallet address) beyond what the entry's own action/resource
+ * strictly needs, so the export redacts them by default and always flags
+ * that redaction was applied - matching issue #161's "controlled export
+ * flow with redaction disclosure": the person exporting sees explicitly
+ * what was left out, not just an unlabeled subset of fields.
+ */
+export function buildAuditLogExport(
+  entries: ExportableAuditLogEntry[],
+  options: { redactActors: boolean } = { redactActors: true }
+): ArtifactExportPlan {
+  const rows = entries.map((entry) => ({
+    id: entry.id,
+    actor: options.redactActors ? "[redacted]" : entry.actor,
+    action: entry.action,
+    resource: entry.resource,
+    occurredAt: entry.occurredAt,
+    entryHash: entry.entryHash,
+  }));
+
+  const warnings: DisclosureWarning[] = options.redactActors
+    ? []
+    : [{ field: "actor", message: "This export includes unredacted actor identifiers." }];
+
+  return {
+    filename: AUDIT_LOG_EXPORT_FILENAME,
+    includedFields: options.redactActors
+      ? ["id", "action", "resource", "occurredAt", "entryHash", "actor (redacted)"]
+      : ["id", "actor", "action", "resource", "occurredAt", "entryHash"],
+    warnings,
+    body: JSON.stringify(rows),
+    mimeType: "application/json",
   };
 }
 

@@ -19,6 +19,11 @@ const navigationItems = [
     href: "/settings/trusted-sources",
     description: "Configure and test trusted source connections",
   },
+  {
+    name: "Audit Log",
+    href: "/settings/audit",
+    description: "Filter, verify, and export organization audit records",
+  },
 ];
 
 const personalItems = [
