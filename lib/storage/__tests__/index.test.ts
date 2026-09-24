@@ -204,6 +204,46 @@ describe('Storage Utilities', () => {
     });
   });
   
+  describe('DISPLAY_PREFERENCES', () => {
+    it('should store and retrieve display preferences', () => {
+      setStorageValue(
+        'DISPLAY_PREFERENCES',
+        { data: { reducedMotion: 'enabled', highContrast: 'system' } },
+        mockDriver
+      );
+
+      const retrieved = getStorageValue('DISPLAY_PREFERENCES', mockDriver);
+      expect(retrieved).toBeTruthy();
+      expect(retrieved?.version).toBe(CURRENT_VERSIONS.DISPLAY_PREFERENCES);
+      expect(retrieved?.data.reducedMotion).toBe('enabled');
+      expect(retrieved?.data.highContrast).toBe('system');
+    });
+
+    it('should default to null when no preference has been saved', () => {
+      const retrieved = getStorageValue('DISPLAY_PREFERENCES', mockDriver);
+      expect(retrieved).toBeNull();
+    });
+
+    it('should reject corrupted display preference data', () => {
+      mockDriver.setItem('DISPLAY_PREFERENCES', 'not json at all');
+
+      const result = getStorageValue('DISPLAY_PREFERENCES', mockDriver);
+      expect(result).toBeNull();
+      expect(mockDriver.getItem('DISPLAY_PREFERENCES')).toBeNull();
+    });
+
+    it('should not store any sensitive state alongside display preferences', () => {
+      setStorageValue(
+        'DISPLAY_PREFERENCES',
+        { data: { reducedMotion: 'disabled', highContrast: 'enabled' } },
+        mockDriver
+      );
+
+      const stored = JSON.parse(mockDriver.getStore()[STORAGE_KEYS.DISPLAY_PREFERENCES]);
+      expect(Object.keys(stored.data)).toEqual(['reducedMotion', 'highContrast']);
+    });
+  });
+
   describe('Storage statistics', () => {
     it('should provide storage statistics', () => {
       const stats1 = getStorageStats(mockDriver);

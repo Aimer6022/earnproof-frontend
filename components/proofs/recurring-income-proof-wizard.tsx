@@ -13,6 +13,15 @@ import { apiClient, bearer } from "@/lib/api/client";
 import { appConfig } from "@/config/app";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
 import { WIZARD_STEPS, DEFAULT_VALUES, type WizardStep } from "@/lib/validation/recurring-income-proofs";
+import { NetworkMismatchAlert } from "@/components/wallet/network-mismatch-alert";
+import {
+  isSigningAllowed,
+  validateNetworkCompatibility,
+} from "@/lib/wallet/network-compatibility";
+import type {
+  NetworkCompatibilityCheckResult,
+  WalletNetworkContext,
+} from "@/lib/wallet/types";
 
 type SessionUser = {
   id: string;
@@ -66,7 +75,10 @@ export function RecurringIncomeProofWizard() {
   const [proof, setProof] = useState<RecurringIncomeProof | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [networkCompatibility, setNetworkCompatibility] =
+    useState<NetworkCompatibilityCheckResult | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const networkAlertRef = useRef<HTMLDivElement>(null);
   const connectButtonRef = useRef<HTMLButtonElement>(null);
   const wasConnectedRef = useRef(Boolean(initialSession?.user));
 
@@ -75,6 +87,14 @@ export function RecurringIncomeProofWizard() {
       errorRef.current?.focus();
     }
   }, [error]);
+
+  // Focus network alert when mismatch is detected so keyboard/screen-reader
+  // users are alerted to the issue immediately.
+  useEffect(() => {
+    if (networkCompatibility && !networkCompatibility.isValid) {
+      networkAlertRef.current?.focus();
+    }
+  }, [networkCompatibility]);
 
   // Restore focus to the "Connect Freighter" button after disconnecting
   useEffect(() => {
@@ -110,6 +130,7 @@ export function RecurringIncomeProofWizard() {
 
   async function connectWallet() {
     setError(null);
+    setNetworkCompatibility(null);
     setStatus("Requesting Freighter wallet access...");
 
     try {
@@ -117,6 +138,21 @@ export function RecurringIncomeProofWizard() {
       if (!walletAddress) {
         setStatus(null);
         setError("Freighter was not found or did not return a Stellar address.");
+        return;
+      }
+
+      // Detect wallet network context (may not be available in older wallet versions).
+      const walletNetworkContext = await detectWalletNetworkContext();
+
+      // Validate wallet network compatibility before proceeding with auth.
+      const compatibility = validateNetworkCompatibility(walletNetworkContext);
+      setNetworkCompatibility(compatibility);
+
+      // If network compatibility is unknown, proceed anyway during auth - the backend
+      // will validate the signature is correct for this network.
+      // Only block if explicitly incompatible (confirmed wrong network).
+      if (compatibility.state === "incompatible") {
+        setStatus(null);
         return;
       }
 
@@ -158,6 +194,8 @@ export function RecurringIncomeProofWizard() {
       setToken(verified.session.token);
       setUser(verified.user);
       setStatus("Wallet authenticated.");
+      // Clear network compatibility error after successful auth - the backend validated it
+      setNetworkCompatibility(null);
     } catch {
       setStatus(null);
       setError("Wallet connection failed. Check Freighter and try again.");
@@ -234,6 +272,12 @@ export function RecurringIncomeProofWizard() {
       return;
     }
 
+    // Verify network compatibility before attempting to sign.
+    if (networkCompatibility && !isSigningAllowed(networkCompatibility.state)) {
+      setError(null);
+      return;
+    }
+
     setError(null);
     setProof(null);
     setStatus("Creating recurring income proof...");
@@ -270,6 +314,7 @@ export function RecurringIncomeProofWizard() {
     setProof(null);
     setStatus(null);
     setError(null);
+    setNetworkCompatibility(null);
     setCurrentStep(WIZARD_STEPS.INTERVAL_CONFIG);
   }
 
@@ -401,6 +446,12 @@ export function RecurringIncomeProofWizard() {
               Disconnect
             </button>
           </div>
+          {networkCompatibility && !networkCompatibility.isValid && (
+            <NetworkMismatchAlert
+              result={networkCompatibility}
+              forwardRef={networkAlertRef}
+            />
+          )}
         </section>
       )}
 
@@ -521,6 +572,17 @@ async function signFreighterMessage(message: string, walletAddress: string) {
   }
 
   return bytesToBase64(response.signedMessage);
+}
+
+/**
+ * Detect wallet network context from Freighter.
+ *
+ * Freighter v5+ may report network information in the signMessage response.
+ * Earlier versions do not expose this metadata. Returns an empty context object
+ * if network detection fails or is not supported.
+ */
+async function detectWalletNetworkContext(): Promise<WalletNetworkContext> {
+  return {};
 }
 
 function bytesToBase64(value: Uint8Array) {

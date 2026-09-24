@@ -1,7 +1,36 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import { WebVitalsReporter } from "@/components/common/web-vitals-reporter";
 import "./globals.css";
+
+// Mirrors lib/storage's STORAGE_KEYS.DISPLAY_PREFERENCES: a plain <script>
+// cannot import the module, so the key is duplicated here (same tradeoff
+// already made for SESSION_KEY in components/organizations/organization-management.tsx).
+const DISPLAY_PREFERENCES_STORAGE_KEY = "earnproof.display-preferences";
+
+// Applies any explicit reduced-motion/high-contrast override before first
+// paint, so the page never flashes the system-default appearance first.
+// "system" needs no JS (the CSS media queries alone govern it), so this
+// only touches the DOM when the user has explicitly overridden a mode.
+const DISPLAY_PREFERENCES_BOOTSTRAP_SCRIPT = `(function() {
+  try {
+    var raw = window.localStorage.getItem(${JSON.stringify(DISPLAY_PREFERENCES_STORAGE_KEY)});
+    if (!raw) return;
+    var parsed = JSON.parse(raw);
+    var data = parsed && parsed.data;
+    if (!data) return;
+    var root = document.documentElement;
+    if (data.reducedMotion === "enabled") {
+      root.dataset.motion = "reduced";
+    } else if (data.reducedMotion === "disabled") {
+      root.dataset.motion = "full";
+    }
+    if (data.highContrast === "enabled") {
+      root.dataset.contrast = "high";
+    }
+  } catch (e) {}
+})();`;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,17 +57,23 @@ export const metadata: Metadata = {
 // framework scripts and inline bootstrap with the per-request nonce.
 export const dynamic = "force-dynamic";
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{ __html: DISPLAY_PREFERENCES_BOOTSTRAP_SCRIPT }}
+        />
         <WebVitalsReporter />
         {children}
       </body>

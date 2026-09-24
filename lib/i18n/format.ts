@@ -52,15 +52,29 @@ function fallback(value: Date | string | number): string {
   return value instanceof Date ? "" : String(value);
 }
 
+/**
+ * Options shared by the date/time formatters. `timeZone` is left unset by
+ * default (the `Intl` default: the runtime's local time zone) so existing
+ * two-argument call sites are unaffected; callers that display a persisted
+ * user preference pass it explicitly, per `resolveTimeZone` in
+ * `./preferences`, so a value entered in one time zone (or a
+ * server-provided UTC timestamp) is never silently reinterpreted in
+ * whatever zone happens to render it.
+ */
+export type DateFormatOptions = {
+  timeZone?: string;
+};
+
 /** A date, no time component. */
 export function formatDate(
   value: Date | string | number,
   locale: string = DEFAULT_LOCALE,
+  options: DateFormatOptions = {},
 ): string {
   const date = toDate(value);
   if (!isValidDate(date)) return fallback(value);
-  return cached(`date|${locale}`, () =>
-    new Intl.DateTimeFormat(locale, { dateStyle: "medium" }),
+  return cached(`date|${locale}|${options.timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: options.timeZone }),
   ).format(date);
 }
 
@@ -68,11 +82,12 @@ export function formatDate(
 export function formatTime(
   value: Date | string | number,
   locale: string = DEFAULT_LOCALE,
+  options: DateFormatOptions = {},
 ): string {
   const date = toDate(value);
   if (!isValidDate(date)) return fallback(value);
-  return cached(`time|${locale}`, () =>
-    new Intl.DateTimeFormat(locale, { timeStyle: "medium" }),
+  return cached(`time|${locale}|${options.timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, { timeStyle: "medium", timeZone: options.timeZone }),
   ).format(date);
 }
 
@@ -80,11 +95,52 @@ export function formatTime(
 export function formatDateTime(
   value: Date | string | number,
   locale: string = DEFAULT_LOCALE,
+  options: DateFormatOptions = {},
 ): string {
   const date = toDate(value);
   if (!isValidDate(date)) return fallback(value);
-  return cached(`datetime|${locale}`, () =>
-    new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }),
+  return cached(`datetime|${locale}|${options.timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: options.timeZone,
+    }),
+  ).format(date);
+}
+
+/**
+ * A date and time with the viewer's timezone disclosed (#151).
+ *
+ * `formatDateTime` alone is ambiguous: "Sep 24, 2026, 2:00 PM" reads as a
+ * local wall-clock time, but says nothing about *which* timezone that is,
+ * and a proof, payment or API key's issued/expiry instant is meaningful
+ * across timezones (an issuer, a verifier and a worker are rarely in the
+ * same one). `timeZoneName: "short"` appends the abbreviation the
+ * `Intl.DateTimeFormat` already resolves for the runtime's timezone (or an
+ * explicit IANA zone, for tests), e.g. "Sep 24, 2026, 2:00 PM PDT".
+ */
+export function formatDateTimeWithZone(
+  value: Date | string | number,
+  locale: string = DEFAULT_LOCALE,
+  timeZone?: string,
+): string {
+  const date = toDate(value);
+  if (!isValidDate(date)) return fallback(value);
+  return cached(`datetime-tz|${locale}|${timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, {
+      // `dateStyle`/`timeStyle` cannot be combined with `timeZoneName` per
+      // ECMA-402 (some engines throw "Invalid option", others silently
+      // ignore one side) — the component options below are the
+      // `dateStyle: "medium", timeStyle: "short"` equivalent, written out
+      // so `timeZoneName` can be added alongside them.
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+      ...(timeZone ? { timeZone } : {}),
+    }),
   ).format(date);
 }
 

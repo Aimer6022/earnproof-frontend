@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { formatDateTime } from "@/lib/i18n";
+import { Timestamp } from "@/components/common/timestamp";
 
 type PaymentClassification =
   | "INCOME"
@@ -159,9 +159,7 @@ function PaymentCard({
               </p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-slate-300">
-                {formatDateTime(payment.occurredAt)}
-              </p>
+              <Timestamp className="text-sm text-slate-300" value={payment.occurredAt} />
               <p className={`mt-1 text-xs font-medium ${getClassificationColor(payment.classification)}`}>
                 {payment.classification.replace("_", " ")}
               </p>
