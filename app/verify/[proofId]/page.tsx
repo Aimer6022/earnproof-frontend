@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeading } from "@/components/common/page-heading";
 import { pageContainer } from "@/components/common/production-ui";
 import { PublicShell } from "@/components/layout/public-shell";
+import { ProofLifecycleTimeline } from "@/components/proofs/proof-lifecycle-timeline";
 import { apiClient } from "@/lib/api/client";
 import { formatDateRange, formatDateTime, formatMessage } from "@/lib/i18n";
 import type { VerifyProofResponse } from "@/lib/api/generated/v1";
@@ -113,6 +114,15 @@ function VerificationResult({ result }: { result: VerifyProofResponse }) {
       <div className={`inline-flex rounded-md border px-4 py-2 text-sm font-semibold uppercase ${statusStyle.border} ${statusStyle.bg} ${statusStyle.text}`}>
         {result.status}
       </div>
+
+      <ProofLifecycleTimeline
+        proof={{
+          result: result.result,
+          issuedAt: result.credential?.issuedAt,
+          expiresAt: result.proof?.expiresAt,
+          revokedAt: result.proof?.revokedAt,
+        }}
+      />
 
       <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6">
         <p className="text-sm leading-6 text-slate-300 mb-4">
