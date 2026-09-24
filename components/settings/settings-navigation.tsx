@@ -14,6 +14,11 @@ const navigationItems = [
     href: "/settings/issuers",
     description: "Manage issuers and their organizational relationships",
   },
+  {
+    name: "Trusted Sources",
+    href: "/settings/trusted-sources",
+    description: "Configure and test trusted source connections",
+  },
 ];
 
 const personalItems = [
