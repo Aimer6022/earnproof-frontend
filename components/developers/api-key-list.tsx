@@ -4,6 +4,8 @@ import { useCallback, useState } from "react";
 import { formatApiKeyPrefix, rotateApiKey, revokeApiKey } from "@/lib/api/keys";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { Timestamp } from "@/components/common/timestamp";
+import { CursorPagination, type PaginationState } from "@/components/common/cursor-pagination";
+import { ResultsHeading } from "@/components/common/results-heading";
 import { OneTimeSecret } from "./one-time-secret";
 import { formatMessage } from "@/lib/i18n";
 import type { ApiKey } from "@/lib/api/generated/v1";
@@ -22,12 +24,20 @@ export function ApiKeyList({
   apiKeys,
   loading,
   token,
+  paginationState,
+  onPreviousPage,
+  onNextPage,
+  focusResults,
   onKeyUpdated,
   onKeyRevoked,
 }: {
   apiKeys: ApiKey[];
   loading: boolean;
   token: string;
+  paginationState: PaginationState;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+  focusResults: boolean;
   onKeyUpdated: (key: ApiKey) => void;
   onKeyRevoked: (keyId: string) => void;
 }) {
@@ -76,6 +86,15 @@ export function ApiKeyList({
     }
   }, [token, onKeyRevoked]);
 
+  const announcement = focusResults && apiKeys.length > 0
+    ? formatMessage(
+        apiKeys.length === 1
+          ? "Results updated. Showing {count} API key."
+          : "Results updated. Showing {count} API keys.",
+        { count: apiKeys.length }
+      )
+    : undefined;
+
   if (loading && apiKeys.length === 0) {
     return (
       <div className="rounded-md border border-white/10 bg-slate-950 p-4 text-center">
@@ -111,6 +130,14 @@ export function ApiKeyList({
           </div>
         )}
 
+        {/* Results heading with focus management and announcements */}
+        <ResultsHeading
+          onFocusRequested={focusResults}
+          announcement={announcement}
+        >
+          API Keys
+        </ResultsHeading>
+
         {/* Desktop header */}
         <div className="hidden grid-cols-[1.5fr_1fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
           <div>Name & Prefix</div>
@@ -141,6 +168,19 @@ export function ApiKeyList({
             }
           />
         ))}
+      </div>
+
+      {/* Pagination controls */}
+      <div className="mt-4">
+        <CursorPagination
+          state={{
+            ...paginationState,
+            isLoading: loading,
+          }}
+          onPrevious={onPreviousPage}
+          onNext={onNextPage}
+          resultCount={apiKeys.length}
+        />
       </div>
 
       {confirmAction && (

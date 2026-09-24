@@ -59,3 +59,48 @@ textarea {
     overflow-wrap: anywhere;
   }
 }
+/* Reduced motion: system preference, or an explicit user override applied
+   via the data-motion="reduced" attribute (set by the inline bootstrap
+   script in app/layout.tsx before hydration, from lib/storage's
+   DISPLAY_PREFERENCES). data-motion="full" forces motion back on even if
+   the system prefers reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) *,
+  :root:not([data-motion="full"]) *::before,
+  :root:not([data-motion="full"]) *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* High contrast: system preference, or an explicit user override applied
+   via the data-contrast attribute, both overriding the same CSS variables
+   :root already defines so the rest of the app needs no changes. */
+@media (prefers-contrast: more) {
+  :root {
+    --border-subtle: rgba(255, 255, 255, 0.35);
+    --border-default: rgba(255, 255, 255, 0.55);
+    --text-secondary: #f1f5f9;
+    --text-tertiary: #cbd5e1;
+    --accent-border: rgba(103, 232, 249, 0.7);
+  }
+}
+
+[data-contrast="high"] {
+  --border-subtle: rgba(255, 255, 255, 0.35);
+  --border-default: rgba(255, 255, 255, 0.55);
+  --text-secondary: #f1f5f9;
+  --text-tertiary: #cbd5e1;
+  --accent-border: rgba(103, 232, 249, 0.7);
+}

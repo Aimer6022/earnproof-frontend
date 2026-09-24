@@ -10,9 +10,12 @@
 
 export const STORAGE_KEYS = {
   SESSION: 'earnproof.session' as const,
+  DISPLAY_PREFERENCES: 'earnproof.display-preferences' as const,
 } as const;
 
 export type StorageKey = keyof typeof STORAGE_KEYS;
+
+export type DisplayPreferenceMode = 'system' | 'enabled' | 'disabled';
 
 export interface StorageSchema {
   SESSION: {
@@ -25,11 +28,18 @@ export interface StorageSchema {
       };
     };
   };
+  DISPLAY_PREFERENCES: {
+    data: {
+      reducedMotion: DisplayPreferenceMode;
+      highContrast: DisplayPreferenceMode;
+    };
+  };
 }
 
 // Current versions of each storage schema
 export const CURRENT_VERSIONS: Record<StorageKey, number> = {
   SESSION: 1,
+  DISPLAY_PREFERENCES: 1,
 };
 
 export interface StorageMetadata {
@@ -91,6 +101,10 @@ export const localStorageDriver: StorageDriver = {
  */
 export const migrations: Record<StorageKey, Record<number, StorageMigration>> = {
   SESSION: {
+    // Version 1 is current - no migration needed
+    1: (data) => data,
+  },
+  DISPLAY_PREFERENCES: {
     // Version 1 is current - no migration needed
     1: (data) => data,
   },
@@ -226,7 +240,7 @@ function migrateValue<K extends StorageKey>(
       version: toVersion,
       timestamp: new Date().toISOString(),
       key,
-    } as StoredValue<K>;
+    } as unknown as StoredValue<K>;
   } catch (error) {
     console.error(`Migration failed for ${key} from v${fromVersion} to v${toVersion}:`, error);
     return null;
@@ -267,7 +281,7 @@ function migrateLegacyValue<K extends StorageKey>(
             token: legacyValue.token,
             user,
           },
-        } as StoredValue<K>;
+        } as unknown as StoredValue<K>;
       }
     } catch (error) {
       console.error('Legacy session migration failed:', error);

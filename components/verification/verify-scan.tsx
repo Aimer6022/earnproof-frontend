@@ -9,8 +9,9 @@ import {
   type QrRejectReason,
   type ScanDiagnostic,
 } from "@/lib/validation/qr-payload";
+import { useScannerLifecycle } from "@/lib/scanner/use-scanner-lifecycle";
+import { type ScannerError } from "@/lib/scanner/scanner-state";
 
-type ScanStatus = "idle" | "starting" | "scanning" | "error";
 type BarcodeResult = { rawValue: string };
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource | HTMLVideoElement) => Promise<BarcodeResult[]>;
@@ -42,38 +43,60 @@ function logScan(event: ScanDiagnostic) {
   console.debug("[qr-scan]", scanDiagnosticToLogLine(event));
 }
 
+/**
+ * Map scanner lifecycle errors to user-facing messages.
+ */
+function getScannerErrorMessage(error: ScannerError): string {
+  return error.userMessage;
+}
+
 export function VerifyScan() {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const scanTimerRef = useRef<number | null>(null);
+  const detectorRef = useRef<BarcodeDetectorLike | null>(null);
   const [manualInput, setManualInput] = useState("");
-  const [scanStatus, setScanStatus] = useState<ScanStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [cameraAvailable, setCameraAvailable] = useState(true);
   const [statusAnnouncement, setStatusAnnouncement] = useState(
     "Camera is idle. You can allow the camera, upload an image, or enter a proof ID.",
   );
 
-  const stopCamera = useCallback(() => {
-    if (scanTimerRef.current !== null) {
-      window.clearTimeout(scanTimerRef.current);
-      scanTimerRef.current = null;
-    }
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setScanStatus("idle");
-  }, []);
+  // Initialize scanner lifecycle management
+  const scanner = useScannerLifecycle(videoRef as React.RefObject<HTMLVideoElement>, {
+    onCameraReady: () => {
+      setStatusAnnouncement("Camera is scanning. Center one EarnProof QR code in the frame.");
+    },
+    onCameraStopped: () => {
+      // Camera stopped
+    },
+    onError: (error: ScannerError) => {
+      setMessage(getScannerErrorMessage(error));
+      setStatusAnnouncement(getScannerErrorMessage(error));
+      setCameraAvailable(error.recoverable);
+      logScan({
+        outcome: error.recoverable ? "camera-denied" : "camera-unavailable",
+        reason: "detector-missing",
+      });
+    },
+    onVisibilityChange: (visible: boolean) => {
+      if (!visible) {
+        setStatusAnnouncement("Camera is paused. Bring this tab to the foreground to resume scanning.");
+      } else {
+        setStatusAnnouncement("Camera is scanning. Center one EarnProof QR code in the frame.");
+      }
+    },
+    onDeviceDisconnect: () => {
+      setMessage("Camera device was disconnected. Try again.");
+      setStatusAnnouncement("Camera device was disconnected. Try again.");
+    },
+  });
 
   const submitValue = useCallback(
     (value: string, extras?: { multiple?: boolean }) => {
       if (extras?.multiple) {
         setMessage(REJECT_MESSAGES["multiple-codes"]);
         setStatusAnnouncement(REJECT_MESSAGES["multiple-codes"]);
-        setScanStatus("error");
         logScan({ outcome: "multiple-codes", reason: "multiple-codes" });
         return false;
       }
@@ -82,7 +105,6 @@ export function VerifyScan() {
       if (!parsed.ok) {
         setMessage(REJECT_MESSAGES[parsed.reason]);
         setStatusAnnouncement(REJECT_MESSAGES[parsed.reason]);
-        setScanStatus("error");
         logScan({
           outcome: "rejected",
           reason: parsed.reason,
@@ -96,101 +118,99 @@ export function VerifyScan() {
         format: parsed.format,
         payloadBytes: new TextEncoder().encode(value).length,
       });
-      stopCamera();
-      router.push(parsed.verifyPath);
+      scanner.stopCamera();
+      void router.push(parsed.verifyPath);
       return true;
     },
-    [router, stopCamera],
+    [scanner, router],
   );
 
   const startCamera = useCallback(async () => {
     setMessage(null);
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraAvailable(false);
-      setStatusAnnouncement(
-        "Camera scanning is not available in this browser. Upload an image or enter the proof ID.",
-      );
-      setMessage("Camera scanning is not available in this browser. Upload an image or enter the proof ID.");
-      logScan({ outcome: "camera-unavailable", reason: "detector-missing" });
-      return;
-    }
-    if (!window.BarcodeDetector) {
-      setCameraAvailable(false);
-      setStatusAnnouncement(
-        "Live QR scanning is not available in this browser. Upload an image or enter the proof ID.",
-      );
-      setMessage("Live QR scanning is not available in this browser. Upload an image or enter the proof ID.");
-      logScan({ outcome: "camera-unavailable", reason: "detector-missing" });
+    setStatusAnnouncement("Requesting camera permission.");
+    await scanner.startCamera();
+  }, [scanner]);
+
+  const stopCamera = useCallback(() => {
+    scanner.stopCamera();
+  }, [scanner]);
+
+  /**
+   * Begin scanning loop: detect QR codes from video stream.
+   */
+  useEffect(() => {
+    if (scanner.state.name !== "active" || !videoRef.current) {
       return;
     }
 
-    setScanStatus("starting");
-    setStatusAnnouncement("Requesting camera permission.");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: "environment" } },
-      });
-      streamRef.current = stream;
-      if (!videoRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
+    // Initialize detector if not already done
+    if (!detectorRef.current && window.BarcodeDetector) {
+      detectorRef.current = new window.BarcodeDetector({ formats: ["qr_code"] });
+    }
+
+    const detector = detectorRef.current;
+    if (!detector) {
+      return;
+    }
+
+    const video = videoRef.current;
+    const scanFrame = async () => {
+      if (!video || !scanner.state.isScanning) {
         return;
       }
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-      setScanStatus("scanning");
-      setStatusAnnouncement("Camera is scanning. Center one EarnProof QR code in the frame.");
 
-      const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
-      const scanFrame = async () => {
-        const video = videoRef.current;
-        if (!video || !streamRef.current) {
+      if (video.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) {
+        scanTimerRef.current = window.setTimeout(() => void scanFrame(), 250);
+        return;
+      }
+
+      try {
+        const results = await detector.detect(video);
+        if (results.length > 1) {
+          scanner.stopCamera();
+          submitValue(results[0]?.rawValue ?? "", { multiple: true });
           return;
         }
-        if (video.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) {
-          scanTimerRef.current = window.setTimeout(() => void scanFrame(), 250);
+        const value = results[0]?.rawValue;
+        if (value) {
+          if (submitValue(value)) {
+            return;
+          }
+          scanner.stopCamera();
           return;
         }
+        scanTimerRef.current = window.setTimeout(() => void scanFrame(), 250);
+      } catch {
+        scanner.stopCamera();
+        setMessage("We could not read that QR code. Center it in the frame and try again.");
+        setStatusAnnouncement("Scanning failed. You can retry the camera, upload an image, or enter a proof ID.");
+        logScan({ outcome: "unreadable", reason: "image-unreadable" });
+      }
+    };
 
-        try {
-          const results = await detector.detect(video);
-          if (results.length > 1) {
-            stopCamera();
-            submitValue(results[0]?.rawValue ?? "", { multiple: true });
-            return;
-          }
-          const value = results[0]?.rawValue;
-          if (value) {
-            if (submitValue(value)) {
-              return;
-            }
-            stopCamera();
-            setScanStatus("error");
-            return;
-          }
-          scanTimerRef.current = window.setTimeout(() => void scanFrame(), 250);
-        } catch {
-          stopCamera();
-          setScanStatus("error");
-          setMessage("We could not read that QR code. Center it in the frame and try again.");
-          setStatusAnnouncement("Scanning failed. You can retry the camera, upload an image, or enter a proof ID.");
-          logScan({ outcome: "unreadable", reason: "image-unreadable" });
-        }
-      };
+    scanTimerRef.current = window.setTimeout(() => void scanFrame(), 150);
 
-      scanTimerRef.current = window.setTimeout(() => void scanFrame(), 150);
-    } catch {
-      setScanStatus("error");
-      setCameraAvailable(true);
-      setMessage("Camera access was denied or unavailable. Upload a QR image or enter the proof ID instead.");
-      setStatusAnnouncement(
-        "Camera access was denied or unavailable. Upload a QR image or enter the proof ID instead.",
-      );
-      logScan({ outcome: "camera-denied" });
-    }
-  }, [stopCamera, submitValue]);
+    return () => {
+      if (scanTimerRef.current !== null) {
+        window.clearTimeout(scanTimerRef.current);
+        scanTimerRef.current = null;
+      }
+    };
+  }, [scanner.state.name, scanner.state.isScanning, submitValue]);
 
-  useEffect(() => stopCamera, [stopCamera]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  /**
+   * Cleanup on unmount.
+   */
+  useEffect(() => {
+    return () => {
+      if (scanTimerRef.current !== null) {
+        window.clearTimeout(scanTimerRef.current);
+        scanTimerRef.current = null;
+      }
+      scanner.stopCamera();
+    };
+  }, []);
 
   async function onImageChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -200,13 +220,11 @@ export function VerifyScan() {
     if (!window.BarcodeDetector) {
       setMessage("Image QR scanning is not available in this browser. Enter the proof ID manually.");
       setStatusAnnouncement("Image QR scanning is not available. Enter the proof ID manually.");
-      setScanStatus("error");
       logScan({ outcome: "camera-unavailable", reason: "detector-missing" });
       return;
     }
 
     try {
-      setScanStatus("scanning");
       setStatusAnnouncement("Reading the uploaded QR image.");
       const bitmap = await createImageBitmap(file);
       const results = await new window.BarcodeDetector({ formats: ["qr_code"] }).detect(bitmap);
@@ -219,14 +237,12 @@ export function VerifyScan() {
         if (!results[0]?.rawValue) {
           setMessage("No readable EarnProof QR code was found in that image. Try another image.");
           setStatusAnnouncement("No readable EarnProof QR code was found. Try another image or enter a proof ID.");
-          setScanStatus("error");
           logScan({ outcome: "unreadable", reason: "image-unreadable" });
         }
       }
     } catch {
       setMessage("We could not read that image. Choose a clear QR code image and try again.");
       setStatusAnnouncement("The uploaded image could not be read. Try a clearer image or enter a proof ID.");
-      setScanStatus("error");
       logScan({ outcome: "unreadable", reason: "image-unreadable" });
     }
   }
@@ -237,7 +253,7 @@ export function VerifyScan() {
     submitValue(manualInput);
   }
 
-  const isScanning = scanStatus === "starting" || scanStatus === "scanning";
+  const isScanning = scanner.state.isScanning;
 
   return (
     <section
@@ -272,14 +288,18 @@ export function VerifyScan() {
         <div className="mt-3 grid w-fit gap-2 sm:mt-5">
           <button
             className="h-8 rounded-md bg-cyan-300 px-5 text-xs font-medium text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:h-10 sm:px-7 sm:text-sm"
-            disabled={!cameraAvailable || isScanning}
+            disabled={!cameraAvailable || scanner.state.isStarting || isScanning}
             onClick={() => void startCamera()}
             type="button"
           >
-            {scanStatus === "starting" ? "Starting camera..." : "Allow camera"}
+            {scanner.state.isStarting ? "Starting camera..." : "Allow camera"}
           </button>
           {isScanning ? (
-            <button className="h-8 rounded-md border border-white/20 px-5 text-xs font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:h-10 sm:text-sm" onClick={stopCamera} type="button">
+            <button
+              className="h-8 rounded-md border border-white/20 px-5 text-xs font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:h-10 sm:text-sm"
+              onClick={stopCamera}
+              type="button"
+            >
               Stop camera
             </button>
           ) : null}
@@ -288,11 +308,28 @@ export function VerifyScan() {
         {!isScanning ? (
           <div className="mt-4 grid gap-3 rounded-lg border border-white/10 bg-slate-950/40 p-3 sm:w-[360px] sm:p-4">
             <form className="grid gap-2" onSubmit={onManualSubmit}>
-              <label className="text-xs font-medium text-slate-300" htmlFor="manual-proof">Proof ID or verification URL</label>
-              <input autoComplete="off" className="h-10 rounded-md border border-white/15 bg-transparent px-3 text-xs text-white placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:text-sm" id="manual-proof" onChange={(event) => setManualInput(event.target.value)} placeholder="ep_7F3A or verification link" value={manualInput} />
-              <button className="h-9 rounded-md bg-cyan-300 px-4 text-xs font-medium text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:text-sm" type="submit">Verify proof</button>
+              <label className="text-xs font-medium text-slate-300" htmlFor="manual-proof">
+                Proof ID or verification URL
+              </label>
+              <input
+                autoComplete="off"
+                className="h-10 rounded-md border border-white/15 bg-transparent px-3 text-xs text-white placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:text-sm"
+                id="manual-proof"
+                onChange={(event) => setManualInput(event.target.value)}
+                placeholder="ep_7F3A or verification link"
+                value={manualInput}
+              />
+              <button
+                className="h-9 rounded-md bg-cyan-300 px-4 text-xs font-medium text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:text-sm"
+                type="submit"
+              >
+                Verify proof
+              </button>
             </form>
-            <label className="flex h-9 cursor-pointer items-center justify-center rounded-md border border-white/15 px-4 text-xs font-medium text-white hover:border-white/30 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-cyan-300 sm:text-sm" htmlFor="qr-image">
+            <label
+              className="flex h-9 cursor-pointer items-center justify-center rounded-md border border-white/15 px-4 text-xs font-medium text-white hover:border-white/30 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-cyan-300 sm:text-sm"
+              htmlFor="qr-image"
+            >
               Upload QR image
               <input accept="image/*" className="sr-only" id="qr-image" onChange={onImageChange} type="file" />
             </label>

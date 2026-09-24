@@ -52,15 +52,29 @@ function fallback(value: Date | string | number): string {
   return value instanceof Date ? "" : String(value);
 }
 
+/**
+ * Options shared by the date/time formatters. `timeZone` is left unset by
+ * default (the `Intl` default: the runtime's local time zone) so existing
+ * two-argument call sites are unaffected; callers that display a persisted
+ * user preference pass it explicitly, per `resolveTimeZone` in
+ * `./preferences`, so a value entered in one time zone (or a
+ * server-provided UTC timestamp) is never silently reinterpreted in
+ * whatever zone happens to render it.
+ */
+export type DateFormatOptions = {
+  timeZone?: string;
+};
+
 /** A date, no time component. */
 export function formatDate(
   value: Date | string | number,
   locale: string = DEFAULT_LOCALE,
+  options: DateFormatOptions = {},
 ): string {
   const date = toDate(value);
   if (!isValidDate(date)) return fallback(value);
-  return cached(`date|${locale}`, () =>
-    new Intl.DateTimeFormat(locale, { dateStyle: "medium" }),
+  return cached(`date|${locale}|${options.timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: options.timeZone }),
   ).format(date);
 }
 
@@ -68,11 +82,12 @@ export function formatDate(
 export function formatTime(
   value: Date | string | number,
   locale: string = DEFAULT_LOCALE,
+  options: DateFormatOptions = {},
 ): string {
   const date = toDate(value);
   if (!isValidDate(date)) return fallback(value);
-  return cached(`time|${locale}`, () =>
-    new Intl.DateTimeFormat(locale, { timeStyle: "medium" }),
+  return cached(`time|${locale}|${options.timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, { timeStyle: "medium", timeZone: options.timeZone }),
   ).format(date);
 }
 
@@ -80,11 +95,16 @@ export function formatTime(
 export function formatDateTime(
   value: Date | string | number,
   locale: string = DEFAULT_LOCALE,
+  options: DateFormatOptions = {},
 ): string {
   const date = toDate(value);
   if (!isValidDate(date)) return fallback(value);
-  return cached(`datetime|${locale}`, () =>
-    new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }),
+  return cached(`datetime|${locale}|${options.timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: options.timeZone,
+    }),
   ).format(date);
 }
 

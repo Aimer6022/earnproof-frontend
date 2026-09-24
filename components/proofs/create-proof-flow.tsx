@@ -5,11 +5,28 @@ import type { getAddress, requestAccess, signMessage } from "@stellar/freighter-
 import { ArtifactExport } from "@/components/proofs/artifact-export";
 import { PaymentListSkeleton } from "@/components/common/skeleton/payment-list-skeleton";
 import { Timestamp } from "@/components/common/timestamp";
+import { WalletConsentScreen } from "@/components/auth/wallet-consent-screen";
+import { NetworkMismatchAlert } from "@/components/wallet/network-mismatch-alert";
 import { appConfig } from "@/config/app";
 import { apiClient, bearer } from "@/lib/api/client";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
 import { resolveIdempotencyKey, type IdempotencyState, type ProofIntent } from "@/lib/proofs/idempotency";
 import { createSubmissionGuard } from "@/lib/proofs/submission-guard";
+import {
+  isSigningAllowed,
+  validateNetworkCompatibility,
+} from "@/lib/wallet/network-compatibility";
+import type {
+  NetworkCompatibilityCheckResult,
+  WalletNetworkContext,
+} from "@/lib/wallet/types";
+
+type PendingChallenge = {
+  id: string;
+  message: string;
+  expiresAt: string;
+  walletAddress: string;
+};
 
 type SessionUser = {
   id: string;
@@ -65,10 +82,15 @@ export function CreateProofFlow() {
   const [periodStart, setPeriodStart] = useState("2026-08-01");
   const [periodEnd, setPeriodEnd] = useState("2026-08-31");
   const [proof, setProof] = useState<ProofResponse | null>(null);
+  const [pendingChallenge, setPendingChallenge] = useState<PendingChallenge | null>(null);
+  const [isSigning, setIsSigning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmittingProof, setIsSubmittingProof] = useState(false);
+  const [networkCompatibility, setNetworkCompatibility] =
+    useState<NetworkCompatibilityCheckResult | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const networkAlertRef = useRef<HTMLDivElement>(null);
   const connectButtonRef = useRef<HTMLButtonElement>(null);
   const wasConnectedRef = useRef(Boolean(initialSession?.user));
   // Guards against duplicate proof-creation mutations: at most one active
@@ -82,6 +104,14 @@ export function CreateProofFlow() {
       errorRef.current?.focus();
     }
   }, [error]);
+
+  // Focus network alert when mismatch is detected so keyboard/screen-reader
+  // users are alerted to the issue immediately.
+  useEffect(() => {
+    if (networkCompatibility && !networkCompatibility.isValid) {
+      networkAlertRef.current?.focus();
+    }
+  }, [networkCompatibility]);
 
   // Restore focus to the "Connect Freighter" button after disconnecting so
   // keyboard focus doesn't fall back to <body> when the "Disconnect"
@@ -109,6 +139,7 @@ export function CreateProofFlow() {
 
   async function connectWallet() {
     setError(null);
+    setNetworkCompatibility(null);
     setStatus("Requesting Freighter wallet access...");
 
     try {
@@ -116,6 +147,22 @@ export function CreateProofFlow() {
       if (!walletAddress) {
         setStatus(null);
         setError("Freighter was not found or did not return a Stellar address.");
+        return;
+      }
+
+      // Detect wallet network context (may not be available in older wallet versions).
+      const walletNetworkContext = await detectWalletNetworkContext();
+
+      // Validate wallet network compatibility before proceeding with auth.
+      const compatibility = validateNetworkCompatibility(walletNetworkContext);
+      setNetworkCompatibility(compatibility);
+
+      // If network compatibility is unknown, proceed anyway during auth - the backend
+      // will validate the signature is correct for this network. If the wallet is on
+      // the wrong network, the backend's network check will catch it.
+      // Only block if explicitly incompatible (confirmed wrong network).
+      if (compatibility.state === "incompatible") {
+        setStatus(null);
         return;
       }
 
@@ -129,8 +176,39 @@ export function CreateProofFlow() {
         body: JSON.stringify({ walletAddress }),
       });
 
-      setStatus("Waiting for wallet signature...");
-      const signature = await signFreighterMessage(challenge.message, walletAddress);
+      // Show the consent screen and wait for an explicit Continue before
+      // signing, rather than immediately prompting Freighter.
+      setStatus(null);
+      setPendingChallenge({ ...challenge, walletAddress });
+    } catch {
+      setStatus(null);
+      setError("Wallet connection failed. Check Freighter and try again.");
+    }
+  }
+
+  function cancelWalletConsent() {
+    setPendingChallenge(null);
+    setStatus(null);
+  }
+
+  async function confirmWalletConsent() {
+    if (!pendingChallenge) return;
+
+    // Re-check the challenge hasn't expired between review and signing —
+    // there's no push mechanism to detect a changed challenge otherwise.
+    if (new Date(pendingChallenge.expiresAt).getTime() <= Date.now()) {
+      setPendingChallenge(null);
+      setError("This signature request expired. Please reconnect your wallet.");
+      return;
+    }
+
+    setIsSigning(true);
+    setError(null);
+    setStatus("Waiting for wallet signature...");
+
+    try {
+      const { id: challengeId, message, walletAddress } = pendingChallenge;
+      const signature = await signFreighterMessage(message, walletAddress);
       if (!signature) {
         setStatus(null);
         setError("Wallet did not return a signature for the challenge.");
@@ -144,7 +222,7 @@ export function CreateProofFlow() {
         path: "/auth/verify",
         method: "POST",
         body: JSON.stringify({
-          challengeId: challenge.id,
+          challengeId,
           walletAddress,
           signature,
         }),
@@ -157,9 +235,14 @@ export function CreateProofFlow() {
       setToken(verified.session.token);
       setUser(verified.user);
       setStatus("Wallet authenticated.");
+      setPendingChallenge(null);
+      // Clear network compatibility error after successful auth - the backend validated it
+      setNetworkCompatibility(null);
     } catch {
       setStatus(null);
       setError("Wallet connection failed. Check Freighter and try again.");
+    } finally {
+      setIsSigning(false);
     }
   }
 
@@ -238,6 +321,12 @@ export function CreateProofFlow() {
 
     if (selectedIncomePayments.length === 0) {
       setError("Select at least one eligible income payment.");
+      return;
+    }
+
+    // Verify network compatibility before attempting to sign.
+    if (networkCompatibility && !isSigningAllowed(networkCompatibility.state)) {
+      setError(null);
       return;
     }
 
@@ -328,10 +417,24 @@ export function CreateProofFlow() {
     setProof(null);
     setStatus(null);
     setError(null);
+    setNetworkCompatibility(null);
   }
 
   return (
     <div className="grid gap-8 sm:gap-10">
+      {pendingChallenge && (
+        <WalletConsentScreen
+          challenge={{
+            origin: typeof window !== "undefined" ? window.location.origin : appConfig.apiUrl,
+            network: appConfig.stellarNetwork,
+            expiresAt: pendingChallenge.expiresAt,
+            purpose: "Sign in to EarnProof",
+          }}
+          onContinue={confirmWalletConsent}
+          onCancel={cancelWalletConsent}
+          isProcessing={isSigning}
+        />
+      )}
       <section className="grid gap-4 rounded-lg border border-white/10 bg-white/[0.04] p-5">
         <div>
           <h2 className="text-xl font-semibold text-white">Wallet</h2>
@@ -351,6 +454,12 @@ export function CreateProofFlow() {
             <p className="break-all">
               Connected as <span className="text-cyan-200">{user.walletAddress}</span>
             </p>
+            {networkCompatibility && !networkCompatibility.isValid && (
+              <NetworkMismatchAlert
+                result={networkCompatibility}
+                forwardRef={networkAlertRef}
+              />
+            )}
             <button
               className="h-10 w-fit rounded-md border border-white/15 px-4 text-xs font-semibold text-white"
               onClick={disconnect}
@@ -647,6 +756,31 @@ async function getFreighterAddress() {
 
   const address = await freighter.getAddress().catch(() => null);
   return address?.address ?? null;
+}
+
+/**
+ * Detect wallet network context from Freighter.
+ *
+ * Freighter v5+ may report network information in the signMessage response.
+ * Earlier versions do not expose this metadata. Returns an empty context object
+ * if network detection fails or is not supported.
+ *
+ * Note: This is a preliminary detection call that does NOT send a signature
+ * request to the user's wallet. It attempts to detect what network the wallet
+ * is configured for through metadata inspection or trial call patterns.
+ *
+ * For now, we use an empty context as a safe default. In a production wallet
+ * that supports network detection in the API, this function would query the
+ * wallet's current network state without prompting the user.
+ */
+async function detectWalletNetworkContext(): Promise<WalletNetworkContext> {
+  // In a future enhancement with wallet support for network detection API,
+  // this would call freighter.getNetwork() or similar to detect the wallet's
+  // current network without prompting the user for a signature.
+  //
+  // For now, return empty context. Network will be validated during the
+  // signMessage call when we can extract it from the response or error.
+  return {};
 }
 
 async function signFreighterMessage(message: string, walletAddress: string) {
