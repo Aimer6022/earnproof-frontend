@@ -1,11 +1,12 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CreateIssuerForm } from "./create-issuer-form";
 import { IssuerList } from "./issuer-list";
-import { getIssuers } from "@/lib/api/issuers";
+import { getIssuersPaginated } from "@/lib/api/issuers";
 import { getOrganizations } from "@/lib/api/organizations";
+import { usePagination } from "@/lib/hooks/use-pagination";
 import type { Issuer, Organization } from "@/lib/api/generated/v1";
+import type { IssuerWithRevision } from "@/lib/api/issuers";
+import type { OrganizationWithRevision } from "@/lib/api/organizations";
 
 const SESSION_KEY = "earnproof.session";
 
@@ -39,47 +40,83 @@ export function IssuerManagement() {
   const [session] = useState<SessionData | null>(() => readStoredSession());
   const [issuers, setIssuers] = useState<Issuer[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [issuers, setIssuers] = useState<IssuerWithRevision[]>([]);
+  const [organizations, setOrganizations] = useState<OrganizationWithRevision[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const requestCounterRef = useRef(0);
   const sessionToken = session?.token ?? null;
 
-  const loadData = useCallback(async () => {
-    if (!sessionToken) {
-      return;
-    }
+  const pagination = usePagination({ pageSize: 10 });
 
-    // Cancel any pending request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const [issuersData, orgsData] = await Promise.all([
-        getIssuers(sessionToken, controller.signal),
-        getOrganizations(sessionToken, controller.signal),
-      ]);
-      
-      if (!controller.signal.aborted) {
-        setIssuers(issuersData);
-        setOrganizations(orgsData);
+  const loadData = useCallback(
+    async (navigateToNext: boolean = false, navigateToPrev: boolean = false) => {
+      if (!sessionToken) {
+        return;
       }
-    } catch {
-      if (!controller.signal.aborted) {
-        setError("Failed to load issuers and organizations. Please try again.");
+
+      // Cancel any pending request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
-    } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      requestCounterRef.current += 1;
+      const requestId = `req-${requestCounterRef.current}`;
+
+      pagination.setLoading(true);
+      setError(null);
+
+      try {
+        let nextCursor = pagination.currentPage.nextCursor ?? undefined;
+        let previousCursor = pagination.currentPage.previousCursor ?? undefined;
+
+        // Handle navigation requests
+        if (navigateToNext && pagination.currentPage.nextCursor) {
+          previousCursor = pagination.currentPage.nextCursor;
+          nextCursor = undefined;
+        } else if (navigateToPrev && pagination.currentPage.previousCursor) {
+          nextCursor = pagination.currentPage.previousCursor;
+          previousCursor = undefined;
+        }
+
+        const [issuersResponse, orgsData] = await Promise.all([
+          getIssuersPaginated(
+            sessionToken,
+            pagination.pageSize,
+            nextCursor,
+            previousCursor,
+            controller.signal
+          ),
+          getOrganizations(sessionToken, controller.signal),
+        ]);
+
+        if (!controller.signal.aborted) {
+          setIssuers(issuersResponse.items);
+          setOrganizations(orgsData);
+          pagination.setPageState(
+            {
+              nextCursor: issuersResponse.nextCursor,
+              previousCursor: issuersResponse.previousCursor,
+            },
+            requestId
+          );
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setError("Failed to load issuers and organizations. Please try again.");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          pagination.setLoading(false);
+          pagination.clearUserInitiated();
+        }
       }
-    }
-  }, [sessionToken]);
+    },
+    [sessionToken, pagination]
+  );
 
   useEffect(() => {
     let active = true;
@@ -89,7 +126,7 @@ export function IssuerManagement() {
         void loadData();
       }
     });
-    
+
     // Cleanup on unmount
     return () => {
       active = false;
@@ -99,15 +136,25 @@ export function IssuerManagement() {
     };
   }, [loadData]);
 
-  const handleIssuerCreated = useCallback((issuer: Issuer) => {
+  const handleIssuerCreated = useCallback((issuer: IssuerWithRevision) => {
     setIssuers(prev => [...prev, issuer]);
   }, []);
 
-  const handleIssuerUpdated = useCallback((updatedIssuer: Issuer) => {
+  const handleIssuerUpdated = useCallback((updatedIssuer: IssuerWithRevision) => {
     setIssuers(prev => prev.map(issuer => 
       issuer.id === updatedIssuer.id ? updatedIssuer : issuer
     ));
   }, []);
+
+  const handlePreviousPage = useCallback(() => {
+    pagination.goToPreviousPage();
+    void loadData(false, true);
+  }, [pagination, loadData]);
+
+  const handleNextPage = useCallback(() => {
+    pagination.goToNextPage();
+    void loadData(true, false);
+  }, [pagination, loadData]);
 
   // Check if user has admin role
   const isAdmin = session?.user.role === "ADMIN" || session?.user.role === "ISSUER";
@@ -158,11 +205,11 @@ export function IssuerManagement() {
           </div>
           <button
             className="h-10 rounded-md border border-white/15 px-4 text-xs font-semibold text-white disabled:opacity-50"
-            disabled={loading}
-            onClick={loadData}
+            disabled={pagination.isLoading}
+            onClick={() => loadData()}
             type="button"
           >
-            {loading ? "Loading..." : "Refresh"}
+            {pagination.isLoading ? "Loading..." : "Refresh"}
           </button>
         </div>
 
@@ -177,9 +224,16 @@ export function IssuerManagement() {
         <IssuerList
           issuers={issuers}
           organizations={organizations}
-          loading={loading}
+          loading={pagination.isLoading}
           token={session.token}
           role={session.user.role}
+          paginationState={{
+            ...pagination.currentPage,
+            isLoading: pagination.isLoading,
+          }}
+          onPreviousPage={handlePreviousPage}
+          onNextPage={handleNextPage}
+          focusResults={pagination.wasUserInitiated}
           onIssuerUpdated={handleIssuerUpdated}
         />
       </section>

@@ -17,6 +17,12 @@ export type RotateApiKeyResponse = {
   secret: string; // Only returned once on rotation
 };
 
+export type PaginatedApiKeysResponse = {
+  items: ApiKey[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+};
+
 export const AVAILABLE_SCOPES = [
   "verification:read",
   "proofs:create", 
@@ -39,6 +45,28 @@ export async function getApiKeys(token: string, signal: AbortSignal): Promise<Ap
       signal,
     });
   }, signal);
+}
+
+export async function getApiKeysPaginated(
+  token: string,
+  pageSize: number = 10,
+  nextCursor?: string,
+  previousCursor?: string,
+  signal?: AbortSignal
+): Promise<PaginatedApiKeysResponse> {
+  return retryRead(async (signal) => {
+    const params = new URLSearchParams();
+    params.append("limit", String(pageSize));
+    if (nextCursor) params.append("next_cursor", nextCursor);
+    if (previousCursor) params.append("previous_cursor", previousCursor);
+
+    return apiClient<PaginatedApiKeysResponse>({
+      path: `/api-keys?${params.toString()}`,
+      method: "GET",
+      headers: bearer(token),
+      signal,
+    });
+  }, signal!);
 }
 
 export async function createApiKey(

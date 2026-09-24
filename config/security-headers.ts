@@ -19,6 +19,30 @@ export type SecurityPolicy = {
 export type BuildSecurityPolicyOptions = {
   env?: EnvLike;
   nonce?: string;
+  /**
+   * Narrow, explicit opt-in for the single route family that is meant to be
+   * framed by third-party ("relying party") sites: the public embeddable
+   * verification widget (`/embed/...`, issue #196). Every other caller of
+   * `buildSecurityPolicy` — including every existing call site — must keep
+   * omitting this option, which preserves today's `frame-ancestors 'none'`
+   * + `X-Frame-Options: DENY` behavior exactly as-is.
+   *
+   * When set, this ONLY changes framing directives:
+   * - `frame-ancestors` becomes `*` (the widget is meant to be embeddable
+   *   on any relying-party site, not a fixed allow-list).
+   * - `X-Frame-Options` is omitted entirely rather than set to some other
+   *   value: XFO has no syntax for "allow all frame ancestors" (`ALLOW-FROM`
+   *   is obsolete/unsupported in modern browsers), and a stale `DENY` would
+   *   contradict the CSP directive and break the very framing this option
+   *   exists to allow. `frame-ancestors` is authoritative in every browser
+   *   that matters here; omitting XFO does not widen anything beyond what
+   *   `frame-ancestors *` already grants.
+   *
+   * Every other directive (script-src, connect-src, object-src, etc.) is
+   * completely unaffected — this is not a "looser CSP for embeds" switch,
+   * it is a framing-only carve-out.
+   */
+  allowEmbedding?: boolean;
 };
 
 const CSP_SEPARATOR = "; ";
@@ -72,6 +96,12 @@ export function buildSecurityPolicy(
   ]);
 
   const isHttpsApp = env.NEXT_PUBLIC_APP_URL.startsWith("https://");
+  const allowEmbedding = options.allowEmbedding === true;
+
+  // frame-ancestors is the ONLY directive this option touches. Every other
+  // directive below is built exactly as it always has been, regardless of
+  // `allowEmbedding`.
+  const frameAncestors = allowEmbedding ? "*" : "'none'";
 
   const directives = [
     `default-src ${cspValue(["'self'"])}`,
@@ -89,7 +119,7 @@ export function buildSecurityPolicy(
     `base-uri ${cspValue(["'self'"])}`,
     `form-action ${cspValue(["'self'"])}`,
     `frame-src ${cspValue(["'none'"])}`,
-    `frame-ancestors ${cspValue(["'none'"])}`,
+    `frame-ancestors ${cspValue([frameAncestors])}`,
     `child-src ${cspValue(["'none'"])}`,
     isHttpsApp ? "upgrade-insecure-requests" : "",
   ].filter(Boolean);
@@ -98,7 +128,10 @@ export function buildSecurityPolicy(
 
   const headers: SecurityHeader[] = [
     { key: "Content-Security-Policy", value: csp },
-    { key: "X-Frame-Options", value: "DENY" },
+    // See `allowEmbedding` above: XFO is omitted (not relaxed) on the one
+    // route family that opts into framing, because XFO cannot express
+    // "allow any ancestor" and frame-ancestors is authoritative anyway.
+    ...(allowEmbedding ? [] : [{ key: "X-Frame-Options", value: "DENY" }]),
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
     {

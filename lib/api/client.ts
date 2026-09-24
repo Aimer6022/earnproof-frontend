@@ -115,6 +115,20 @@ export async function retryMutation<T>(
   return fn(signal);
 }
 
+export class ApiConflictError extends Error {
+  readonly statusCode = 409;
+  
+  constructor(
+    public serverEntity?: unknown,
+    public userSubmittedData?: Record<string, unknown>,
+    message = "A stale write conflict occurred. The resource was modified after you loaded this form.",
+  ) {
+    super(message);
+    this.name = "ApiConflictError";
+    Object.setPrototypeOf(this, ApiConflictError.prototype);
+  }
+}
+
 export async function apiClient<TResponse>({
   path,
   headers,
@@ -145,6 +159,32 @@ export async function apiClient<TResponse>({
   }
 
   if (!response.ok) {
+    // Handle 409 Conflict errors specially for stale-write detection
+    if (response.status === 409) {
+      try {
+        const conflictData = await response.json() as {
+          message?: string;
+          currentEntity?: unknown;
+          submittedData?: unknown;
+        };
+        throw new ApiConflictError(
+          conflictData.currentEntity,
+          conflictData.submittedData as Record<string, unknown> | undefined,
+          conflictData.message || "A stale write conflict occurred. The resource was modified after you loaded this form.",
+        );
+      } catch (parseError) {
+        // If response body doesn't parse, throw generic conflict error
+        if (parseError instanceof ApiConflictError) {
+          throw parseError;
+        }
+        throw new ApiConflictError(
+          undefined,
+          undefined,
+          "A stale write conflict occurred. The resource was modified after you loaded this form.",
+        );
+      }
+    }
+
     const error = new Error(`EarnProof API request failed with ${response.status}`);
     reportClientError({
       error,

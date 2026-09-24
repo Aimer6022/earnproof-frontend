@@ -4,9 +4,17 @@ import { useCallback, useState } from "react";
 import { canPerformIssuerTransition, updateIssuer, formatIssuerStatus, getIssuerStatusTone } from "@/lib/api/issuers";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { EditIssuerForm } from "@/components/issuers/edit-issuer-form";
+import { updateIssuer, formatIssuerStatus, getIssuerStatusTone, getIssuer } from "@/lib/api/issuers";
+import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
+import { CursorPagination, type PaginationState } from "@/components/common/cursor-pagination";
+import { ResultsHeading } from "@/components/common/results-heading";
+import { ResolveConflictDialog } from "@/components/forms/resolve-conflict-dialog";
 import { StatusBadge } from "@/components/common/production-ui";
 import { formatMessage } from "@/lib/i18n";
-import type { Issuer, Organization } from "@/lib/api/generated/v1";
+import { ApiConflictError } from "@/lib/api/client";
+import { useConflictResolution } from "@/hooks/use-conflict-resolution";
+import type { IssuerWithRevision } from "@/lib/api/issuers";
+import type { Organization } from "@/lib/api/generated/v1";
 
 const issuerActionLabels = {
   suspend: "Suspend",
@@ -20,14 +28,23 @@ export function IssuerList({
   loading,
   token,
   role,
+  paginationState,
+  onPreviousPage,
+  onNextPage,
+  focusResults,
   onIssuerUpdated,
 }: {
-  issuers: Issuer[];
+  issuers: IssuerWithRevision[];
   organizations: Organization[];
   loading: boolean;
   token: string;
   role: string | undefined;
+  paginationState: PaginationState;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+  focusResults: boolean;
   onIssuerUpdated: (issuer: Issuer) => void;
+  onIssuerUpdated: (issuer: IssuerWithRevision) => void;
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,9 +55,56 @@ export function IssuerList({
     issuerName: string;
   } | null>(null);
 
+  const {
+    conflict,
+    isRetrying,
+    isReloading,
+    showConflict,
+    handleReload,
+    handleRetry,
+    handleAbandon,
+  } = useConflictResolution({
+    onReloadEntity: async () => {
+      if (!confirmAction) return;
+      try {
+        const controller = new AbortController();
+        const issuer = await getIssuer(token, confirmAction.issuerId, controller.signal);
+        onIssuerUpdated(issuer);
+      } finally {
+        setActionLoading(null);
+        setConfirmAction(null);
+      }
+    },
+    onRetrySubmit: async (formState) => {
+      if (!confirmAction) return;
+      try {
+        const statusMap = {
+          suspend: "SUSPENDED" as const,
+          activate: "ACTIVE" as const,
+          revoke: "REVOKED" as const,
+        };
+        const controller = new AbortController();
+        const updated = await updateIssuer(
+          token,
+          confirmAction.issuerId,
+          { 
+            status: statusMap[confirmAction.type],
+            __revision: (formState as any).__revision 
+          },
+          controller.signal
+        );
+        onIssuerUpdated(updated);
+      } finally {
+        setActionLoading(null);
+        setConfirmAction(null);
+      }
+    },
+  });
+
   const handleStatusUpdate = useCallback(async (
     issuerId: string,
-    newStatus: Issuer["status"]
+    newStatus: IssuerWithRevision["status"],
+    issuer: IssuerWithRevision
   ) => {
     setActionLoading(issuerId);
     setError(null);
@@ -50,23 +114,41 @@ export function IssuerList({
       const updated = await updateIssuer(
         token,
         issuerId,
-        { status: newStatus },
+        { 
+          status: newStatus,
+          __revision: issuer.__revision
+        },
         controller.signal
       );
       onIssuerUpdated(updated);
-    } catch {
-      setError("Failed to update issuer status. Please try again.");
+    } catch (err) {
+      if (err instanceof ApiConflictError) {
+        // Show conflict dialog with the current issuer and intended status change
+        const intendedState = { ...issuer, status: newStatus };
+        showConflict(err, intendedState, ["status", "name", "organizationId"]);
+      } else {
+        setError("Failed to update issuer status. Please try again.");
+      }
     } finally {
       setActionLoading(null);
       setConfirmAction(null);
     }
-  }, [token, onIssuerUpdated]);
+  }, [token, onIssuerUpdated, showConflict]);
 
   const getOrganizationName = useCallback((organizationId?: string) => {
     if (!organizationId) return "Independent";
     const org = organizations.find(o => o.id === organizationId);
     return org?.name || "Unknown Organization";
   }, [organizations]);
+
+  const announcement = focusResults && issuers.length > 0
+    ? formatMessage(
+        issuers.length === 1
+          ? "Results updated. Showing {count} issuer."
+          : "Results updated. Showing {count} issuers.",
+        { count: issuers.length }
+      )
+    : undefined;
 
   if (loading && issuers.length === 0) {
     return (
@@ -94,6 +176,14 @@ export function IssuerList({
             </p>
           </div>
         )}
+
+        {/* Results heading with focus management and announcements */}
+        <ResultsHeading
+          onFocusRequested={focusResults}
+          announcement={announcement}
+        >
+          Issuers
+        </ResultsHeading>
 
         {/* Desktop header */}
         <div className="hidden grid-cols-[2fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
@@ -150,6 +240,19 @@ export function IssuerList({
         )}
       </div>
 
+      {/* Pagination controls */}
+      <div className="mt-4">
+        <CursorPagination
+          state={{
+            ...paginationState,
+            isLoading: loading,
+          }}
+          onPrevious={onPreviousPage}
+          onNext={onNextPage}
+          resultCount={issuers.length}
+        />
+      </div>
+
       {confirmAction && (
         <ConfirmationDialog
           title={formatMessage("{action} Issuer", {
@@ -174,15 +277,30 @@ export function IssuerList({
           confirmText={issuerActionLabels[confirmAction.type]}
           confirmVariant={confirmAction.type === "revoke" ? "danger" : "primary"}
           onConfirm={() => {
+            const issuer = issuers.find(i => i.id === confirmAction.issuerId);
+            if (!issuer) return;
             const statusMap = {
               suspend: "SUSPENDED" as const,
               activate: "ACTIVE" as const,
               revoke: "REVOKED" as const,
             };
-            handleStatusUpdate(confirmAction.issuerId, statusMap[confirmAction.type]);
+            handleStatusUpdate(confirmAction.issuerId, statusMap[confirmAction.type], issuer);
           }}
           onCancel={() => setConfirmAction(null)}
           isProcessing={actionLoading === confirmAction.issuerId}
+        />
+      )}
+
+      {conflict.isActive && (
+        <ResolveConflictDialog
+          entityType="Issuer"
+          entityId={confirmAction?.issuerId ?? ""}
+          conflicts={conflict.conflicts}
+          localFormState={conflict.localFormState}
+          onRetry={handleRetry}
+          onReload={handleReload}
+          onAbandon={handleAbandon}
+          isRetrying={isRetrying || isReloading}
         />
       )}
     </>
@@ -199,7 +317,7 @@ function IssuerRow({
   onActivate,
   onRevoke,
 }: {
-  issuer: Issuer;
+  issuer: IssuerWithRevision;
   organizationName: string;
   isLoading: boolean;
   role: string | undefined;

@@ -45,7 +45,7 @@ function installSuccessfulAuthApi() {
         return Promise.resolve({
           id: "challenge_1",
           message: "Sign in to EarnProof",
-          expiresAt: "2026-08-31T12:00:00.000Z",
+          expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
         });
       }
 
@@ -78,12 +78,18 @@ beforeEach(() => {
 });
 
 describe("CreateProofFlow wallet authentication", () => {
-  it("requests Freighter access, signs the challenge, verifies it, and serializes the session", async () => {
+  it("requests Freighter access, shows a consent screen, then signs and verifies after Continue", async () => {
     installSuccessfulAuthApi();
     const user = userEvent.setup();
     render(<CreateProofFlow />);
 
     await user.click(screen.getByRole("button", { name: "Connect Freighter" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(mockedSignMessage).not.toHaveBeenCalled();
+    expect(dialog).toHaveTextContent("Sign in to EarnProof");
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
     await screen.findByText(/Connected as/);
     expect(mockedRequestAccess).toHaveBeenCalledTimes(1);
@@ -96,6 +102,22 @@ describe("CreateProofFlow wallet authentication", () => {
     expect(JSON.parse(window.localStorage.getItem(SESSION_KEY) ?? "null")).toEqual(SESSION);
   });
 
+  it("does not sign or verify when the consent screen is cancelled", async () => {
+    installSuccessfulAuthApi();
+    const user = userEvent.setup();
+    render(<CreateProofFlow />);
+
+    await user.click(screen.getByRole("button", { name: "Connect Freighter" }));
+    await screen.findByRole("dialog");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockedSignMessage).not.toHaveBeenCalled();
+    expect(mockedApiClient).toHaveBeenCalledTimes(1); // only /auth/challenge
+    expect(window.localStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
   it("falls back to getAddress when requestAccess returns no address", async () => {
     mockedRequestAccess.mockResolvedValue({ address: "" });
     installSuccessfulAuthApi();
@@ -103,6 +125,8 @@ describe("CreateProofFlow wallet authentication", () => {
     render(<CreateProofFlow />);
 
     await user.click(screen.getByRole("button", { name: "Connect Freighter" }));
+    await screen.findByRole("dialog");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
     await screen.findByText(/Connected as/);
     expect(mockedGetAddress).toHaveBeenCalledTimes(1);
@@ -121,6 +145,35 @@ describe("CreateProofFlow wallet authentication", () => {
     ).toHaveAttribute("role", "alert");
     expect(window.localStorage.getItem(SESSION_KEY)).toBeNull();
     expect(mockedApiClient).not.toHaveBeenCalled();
+  });
+});
+
+describe("CreateProofFlow wallet consent", () => {
+  it("rejects signing a challenge that expired while the consent screen was open", async () => {
+    mockedApiClient.mockImplementation(
+      ({ path, method }: { path: string; method?: string }) => {
+        if (path === "/auth/challenge" && method === "POST") {
+          return Promise.resolve({
+            id: "challenge_expired",
+            message: "Sign in to EarnProof",
+            expiresAt: new Date(Date.now() - 1000).toISOString(),
+          });
+        }
+        return Promise.reject(new Error(`Unexpected request: ${method ?? "GET"} ${path}`));
+      },
+    );
+    const user = userEvent.setup();
+    render(<CreateProofFlow />);
+
+    await user.click(screen.getByRole("button", { name: "Connect Freighter" }));
+    await screen.findByRole("dialog");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(
+      await screen.findByText(/expired/i),
+    ).toBeInTheDocument();
+    expect(mockedSignMessage).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
@@ -172,6 +225,8 @@ describe("CreateProofFlow session lifecycle", () => {
     render(<CreateProofFlow />);
 
     await user.click(screen.getByRole("button", { name: "Connect Freighter" }));
+    await screen.findByRole("dialog");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByText(/Connected as/);
 
     for (const spy of [log, info, warn, error]) {

@@ -52,3 +52,29 @@ export function resolveLocale(requested?: string | null): string {
     ? requested
     : DEFAULT_LOCALE;
 }
+
+/**
+ * The time zone the app falls back to when no preference is stored and the
+ * runtime's own zone cannot be determined. UTC rather than a guess, because
+ * a wrong-but-plausible default (e.g. assuming US Eastern) is worse than an
+ * explicit, unambiguous one.
+ */
+export const DEFAULT_TIME_ZONE = "UTC";
+
+/**
+ * Validate an IANA time zone identifier the same way `resolveLocale`
+ * validates a locale tag: an unrecognized or malformed value falls back to
+ * `DEFAULT_TIME_ZONE` rather than reaching `Intl.DateTimeFormat`, whose
+ * `RangeError` on an invalid `timeZone` would otherwise take the render
+ * down with it (the same failure mode `format.ts`'s "never throw on bad
+ * input" rule exists to avoid).
+ */
+export function resolveTimeZone(requested?: string | null): string {
+  if (!requested) return DEFAULT_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat(DEFAULT_LOCALE, { timeZone: requested });
+    return requested;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
