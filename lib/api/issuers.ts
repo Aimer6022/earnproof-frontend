@@ -1,5 +1,7 @@
 import { apiClient, bearer, retryRead, retryMutation } from "./client";
+import { captureRevision } from "./revision-tracking";
 import type { Issuer } from "./generated/v1";
+import type { IssuerWithRevision, UpdateIssuerRequestWithRevision } from "./revision-tracking";
 
 export type CreateIssuerRequest = {
   name: string;
@@ -19,13 +21,19 @@ export type PaginatedIssuersResponse = {
 };
 
 export async function getIssuers(token: string, signal: AbortSignal): Promise<Issuer[]> {
+// Re-export revision-aware types for use in forms
+export type { IssuerWithRevision, UpdateIssuerRequestWithRevision };
+
+export async function getIssuers(token: string, signal: AbortSignal): Promise<IssuerWithRevision[]> {
   return retryRead(async (signal) => {
-    return apiClient<Issuer[]>({
+    const issuers = await apiClient<Issuer[]>({
       path: "/issuers",
       method: "GET",
       headers: bearer(token),
       signal,
     });
+    // Capture revision for each issuer at load time
+    return issuers.map(issuer => captureRevision(issuer));
   }, signal);
 }
 
@@ -55,14 +63,16 @@ export async function getIssuer(
   token: string,
   issuerId: string,
   signal: AbortSignal
-): Promise<Issuer> {
+): Promise<IssuerWithRevision> {
   return retryRead(async (signal) => {
-    return apiClient<Issuer>({
+    const issuer = await apiClient<Issuer>({
       path: `/issuers/${issuerId}`,
       method: "GET",
       headers: bearer(token),
       signal,
     });
+    // Capture revision at load time
+    return captureRevision(issuer);
   }, signal);
 }
 
@@ -85,17 +95,19 @@ export async function createIssuer(
 export async function updateIssuer(
   token: string,
   issuerId: string,
-  request: UpdateIssuerRequest,
+  request: UpdateIssuerRequest | UpdateIssuerRequestWithRevision,
   signal: AbortSignal
-): Promise<Issuer> {
+): Promise<IssuerWithRevision> {
   return retryMutation(async (signal) => {
-    return apiClient<Issuer>({
+    const issuer = await apiClient<Issuer>({
       path: `/issuers/${issuerId}`,
       method: "PATCH",
       headers: bearer(token),
       body: JSON.stringify(request),
       signal,
     });
+    // Capture new revision after successful update
+    return captureRevision(issuer);
   }, signal);
 }
 

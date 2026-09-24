@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CreateIssuerForm } from "./create-issuer-form";
 import { IssuerList } from "./issuer-list";
@@ -7,6 +5,8 @@ import { getIssuersPaginated } from "@/lib/api/issuers";
 import { getOrganizations } from "@/lib/api/organizations";
 import { usePagination } from "@/lib/hooks/use-pagination";
 import type { Issuer, Organization } from "@/lib/api/generated/v1";
+import type { IssuerWithRevision } from "@/lib/api/issuers";
+import type { OrganizationWithRevision } from "@/lib/api/organizations";
 
 const SESSION_KEY = "earnproof.session";
 
@@ -40,6 +40,9 @@ export function IssuerManagement() {
   const [session] = useState<SessionData | null>(() => readStoredSession());
   const [issuers, setIssuers] = useState<Issuer[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [issuers, setIssuers] = useState<IssuerWithRevision[]>([]);
+  const [organizations, setOrganizations] = useState<OrganizationWithRevision[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const requestCounterRef = useRef(0);
@@ -133,11 +136,11 @@ export function IssuerManagement() {
     };
   }, [loadData]);
 
-  const handleIssuerCreated = useCallback((issuer: Issuer) => {
+  const handleIssuerCreated = useCallback((issuer: IssuerWithRevision) => {
     setIssuers(prev => [...prev, issuer]);
   }, []);
 
-  const handleIssuerUpdated = useCallback((updatedIssuer: Issuer) => {
+  const handleIssuerUpdated = useCallback((updatedIssuer: IssuerWithRevision) => {
     setIssuers(prev => prev.map(issuer => 
       issuer.id === updatedIssuer.id ? updatedIssuer : issuer
     ));
