@@ -11,8 +11,13 @@ const navigationItems = [
   },
   {
     name: "Issuers",
-    href: "/settings/issuers", 
+    href: "/settings/issuers",
     description: "Manage issuers and their organizational relationships",
+  },
+  {
+    name: "Activity",
+    href: "/settings/activity",
+    description: "Review recent authentication, key, session, and administrative events",
   },
 ];
 
