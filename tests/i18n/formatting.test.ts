@@ -64,6 +64,37 @@ describe("dates and times", () => {
   });
 });
 
+describe("explicit time zone", () => {
+  it("renders a different wall-clock time for a different zone, same instant", () => {
+    const tokyo = formatTime(MOMENT, "en-US", { timeZone: "Asia/Tokyo" });
+    const losAngeles = formatTime(MOMENT, "en-US", { timeZone: "America/Los_Angeles" });
+    expect(tokyo).not.toBe(losAngeles);
+  });
+
+  it("is a no-op omitted or passed an empty options object (backward compatible with two-argument callers)", () => {
+    expect(formatDate(MOMENT, "en-US", {})).toBe(formatDate(MOMENT, "en-US"));
+    expect(formatDateTime(MOMENT, "en-US", {})).toBe(formatDateTime(MOMENT, "en-US"));
+    expect(formatTime(MOMENT, "en-US", {})).toBe(formatTime(MOMENT, "en-US"));
+  });
+
+  it("applies to formatDate and formatDateTime as well as formatTime", () => {
+    // A moment just after midnight UTC: still the 28th in UTC but the 27th
+    // several hours west, so the *date* itself differs by zone, not only
+    // the time-of-day component.
+    const nearMidnightUtc = new Date("2026-08-28T02:00:00.000Z");
+    expect(formatDate(nearMidnightUtc, "en-US", { timeZone: "UTC" })).not.toBe(
+      formatDate(nearMidnightUtc, "en-US", { timeZone: "Pacific/Honolulu" }),
+    );
+    expect(formatDateTime(MOMENT, "en-US", { timeZone: "UTC" })).not.toBe(
+      formatDateTime(MOMENT, "en-US", { timeZone: "Pacific/Honolulu" }),
+    );
+  });
+
+  it("still renders an unparseable value as-is with a time zone option present", () => {
+    expect(formatDateTime("not-a-date", "en-US", { timeZone: "UTC" })).toBe("not-a-date");
+  });
+});
+
 describe("relative time", () => {
   const now = new Date("2026-08-28T14:40:00.000Z");
 
