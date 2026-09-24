@@ -5,6 +5,8 @@ import { useForm } from "react-hook-form";
 import { createOrganization } from "@/lib/api/organizations";
 import { createOrganizationSchema, type CreateOrganizationInput } from "@/lib/validation/organizations";
 import type { Organization } from "@/lib/api/generated/v1";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
+import { UnsavedChangesDialog } from "@/components/forms/unsaved-changes-dialog";
 
 export function CreateOrganizationForm({
   token,
@@ -20,8 +22,14 @@ export function CreateOrganizationForm({
     register,
     handleSubmit,
     reset,
-    formState: { errors },
+    getValues,
+    formState: { errors, isDirty },
   } = useForm<CreateOrganizationInput>();
+
+  const { pending, clearDraft } = useUnsavedChangesGuard({
+    formId: "create-organization-form",
+    isDirty,
+  });
 
   const onSubmit = useCallback(async (data: CreateOrganizationInput) => {
     setIsSubmitting(true);
@@ -30,11 +38,12 @@ export function CreateOrganizationForm({
     try {
       // Validate with Zod schema
       const validated = createOrganizationSchema.parse(data);
-      
+
       const controller = new AbortController();
       const organization = await createOrganization(token, validated, controller.signal);
       onOrganizationCreated(organization);
       reset(); // Clear form after successful creation
+      clearDraft();
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -44,7 +53,7 @@ export function CreateOrganizationForm({
     } finally {
       setIsSubmitting(false);
     }
-  }, [token, onOrganizationCreated, reset]);
+  }, [token, onOrganizationCreated, reset, clearDraft]);
 
   const generateSlug = useCallback((name: string) => {
     return name
@@ -195,6 +204,13 @@ export function CreateOrganizationForm({
           {isSubmitting ? "Creating..." : "Create Organization"}
         </button>
       </form>
+      {pending && (
+        <UnsavedChangesDialog
+          onStay={pending.stay}
+          onDiscard={pending.discard}
+          onSaveDraft={() => pending.saveDraft(getValues())}
+        />
+      )}
     </section>
   );
 }

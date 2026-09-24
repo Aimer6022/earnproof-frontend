@@ -10,6 +10,7 @@
 
 export const STORAGE_KEYS = {
   SESSION: 'earnproof.session' as const,
+  FORM_DRAFTS: 'earnproof.form-drafts' as const,
 } as const;
 
 export type StorageKey = keyof typeof STORAGE_KEYS;
@@ -25,11 +26,17 @@ export interface StorageSchema {
       };
     };
   };
+  FORM_DRAFTS: {
+    // Keyed by an application-chosen form id (e.g. "create-proof-flow") so
+    // multiple forms can each keep their own draft without colliding.
+    data: Record<string, { savedAt: string; values: unknown }>;
+  };
 }
 
 // Current versions of each storage schema
 export const CURRENT_VERSIONS: Record<StorageKey, number> = {
   SESSION: 1,
+  FORM_DRAFTS: 1,
 };
 
 export interface StorageMetadata {
@@ -91,6 +98,10 @@ export const localStorageDriver: StorageDriver = {
  */
 export const migrations: Record<StorageKey, Record<number, StorageMigration>> = {
   SESSION: {
+    // Version 1 is current - no migration needed
+    1: (data) => data,
+  },
+  FORM_DRAFTS: {
     // Version 1 is current - no migration needed
     1: (data) => data,
   },
@@ -163,7 +174,7 @@ export function setStorageValue<K extends StorageKey>(
       version: CURRENT_VERSIONS[key],
       timestamp: new Date().toISOString(),
       key,
-    } as StoredValue<K>;
+    } as unknown as StoredValue<K>;
     
     driver.setItem(key, JSON.stringify(storedValue));
   } catch (error) {
@@ -226,7 +237,7 @@ function migrateValue<K extends StorageKey>(
       version: toVersion,
       timestamp: new Date().toISOString(),
       key,
-    } as StoredValue<K>;
+    } as unknown as StoredValue<K>;
   } catch (error) {
     console.error(`Migration failed for ${key} from v${fromVersion} to v${toVersion}:`, error);
     return null;
@@ -267,7 +278,7 @@ function migrateLegacyValue<K extends StorageKey>(
             token: legacyValue.token,
             user,
           },
-        } as StoredValue<K>;
+        } as unknown as StoredValue<K>;
       }
     } catch (error) {
       console.error('Legacy session migration failed:', error);
