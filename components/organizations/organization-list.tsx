@@ -4,6 +4,17 @@ import { useCallback, useState } from "react";
 import { updateOrganization, formatOrganizationStatus, getStatusTone } from "@/lib/api/organizations";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { StatusBadge } from "@/components/common/production-ui";
+import {
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableEmptyState,
+  DataTableHead,
+  DataTableHeadCell,
+  DataTablePagination,
+  DataTableRow,
+  useDataTableState,
+} from "@/components/common/data-table";
 import { formatMessage } from "@/lib/i18n";
 import type { Organization } from "@/lib/api/generated/v1";
 
@@ -56,18 +67,16 @@ export function OrganizationList({
     }
   }, [token, onOrganizationUpdated]);
 
+  const { sortKey, sortDirection, toggleSort, pageItems, page, pageCount, setPage } =
+    useDataTableState(organizations, {
+      pageSize: 10,
+      getSortValue: (org, key) => (key === "name" ? org.name : org.status),
+    });
+
   if (loading && organizations.length === 0) {
     return (
       <div className="rounded-md border border-white/10 bg-slate-950 p-4 text-center">
         <p className="text-sm text-slate-400">Loading organizations...</p>
-      </div>
-    );
-  }
-
-  if (organizations.length === 0) {
-    return (
-      <div className="rounded-md border border-white/10 bg-slate-950 p-4 text-center">
-        <p className="text-sm text-slate-400">No organizations found. Create your first organization above.</p>
       </div>
     );
   }
@@ -83,42 +92,61 @@ export function OrganizationList({
           </div>
         )}
 
-        {/* Desktop header */}
-        <div className="hidden grid-cols-[2fr_1fr_1fr_auto] gap-4 border-b border-white/10 pb-2 text-xs font-semibold uppercase text-slate-400 md:grid">
-          <div>Organization</div>
-          <div>Status</div>
-          <div>Created</div>
-          <div>Actions</div>
-        </div>
-
-        {organizations.map((org) => (
-          <OrganizationRow
-            key={org.id}
-            organization={org}
-            isLoading={actionLoading === org.id}
-            onSuspend={() => 
-              setConfirmAction({
-                type: "suspend",
-                organizationId: org.id,
-                organizationName: org.name,
-              })
-            }
-            onActivate={() => 
-              setConfirmAction({
-                type: "activate",
-                organizationId: org.id,
-                organizationName: org.name,
-              })
-            }
-            onRevoke={() =>
-              setConfirmAction({
-                type: "revoke",
-                organizationId: org.id,
-                organizationName: org.name,
-              })
-            }
-          />
-        ))}
+        <DataTable caption="Organizations">
+          <DataTableHead>
+            <DataTableHeadCell
+              sortDirection={sortKey === "name" ? sortDirection : undefined}
+              onSort={() => toggleSort("name")}
+            >
+              Organization
+            </DataTableHeadCell>
+            <DataTableHeadCell
+              sortDirection={sortKey === "status" ? sortDirection : undefined}
+              onSort={() => toggleSort("status")}
+            >
+              Status
+            </DataTableHeadCell>
+            <DataTableHeadCell>Created</DataTableHeadCell>
+            <DataTableHeadCell>Actions</DataTableHeadCell>
+          </DataTableHead>
+          {organizations.length === 0 ? (
+            <DataTableEmptyState colSpan={4}>
+              No organizations found. Create your first organization above.
+            </DataTableEmptyState>
+          ) : (
+            <DataTableBody>
+              {pageItems.map((org) => (
+                <OrganizationRow
+                  key={org.id}
+                  organization={org}
+                  isLoading={actionLoading === org.id}
+                  onSuspend={() =>
+                    setConfirmAction({
+                      type: "suspend",
+                      organizationId: org.id,
+                      organizationName: org.name,
+                    })
+                  }
+                  onActivate={() =>
+                    setConfirmAction({
+                      type: "activate",
+                      organizationId: org.id,
+                      organizationName: org.name,
+                    })
+                  }
+                  onRevoke={() =>
+                    setConfirmAction({
+                      type: "revoke",
+                      organizationId: org.id,
+                      organizationName: org.name,
+                    })
+                  }
+                />
+              ))}
+            </DataTableBody>
+          )}
+        </DataTable>
+        <DataTablePagination page={page} pageCount={pageCount} onPageChange={setPage} />
       </div>
 
       {confirmAction && (
@@ -178,74 +206,72 @@ function OrganizationRow({
   const canRevoke = organization.status !== "REVOKED" && organization.status !== "DELETED";
 
   return (
-    <div className="grid gap-3 rounded-md border border-white/10 bg-slate-950 p-4 text-sm md:grid-cols-[2fr_1fr_1fr_auto] md:items-center md:gap-4">
-      {/* Organization Info */}
-      <div className="min-w-0">
-        <div className="font-medium text-white">{organization.name}</div>
-        <div className="mt-1 font-mono text-xs text-slate-400">
-          {organization.slug}
-        </div>
-        {organization.website && (
-          <div className="mt-1 text-xs">
-            <a
-              href={organization.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-cyan-300 hover:text-cyan-200 transition"
-            >
-              {organization.website}
-            </a>
+    <DataTableRow>
+      <DataTableCell>
+        <div className="min-w-0">
+          <div className="font-medium text-white">{organization.name}</div>
+          <div className="mt-1 font-mono text-xs text-slate-400">
+            {organization.slug}
           </div>
-        )}
-      </div>
+          {organization.website && (
+            <div className="mt-1 text-xs">
+              <a
+                href={organization.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-cyan-300 hover:text-cyan-200 transition"
+              >
+                {organization.website}
+              </a>
+            </div>
+          )}
+        </div>
+      </DataTableCell>
 
-      {/* Status */}
-      <div>
-        <div className="text-slate-300 md:hidden font-semibold">Status:</div>
+      <DataTableCell>
         <StatusBadge tone={getStatusTone(organization.status)}>
           {formatOrganizationStatus(organization.status)}
         </StatusBadge>
-      </div>
+      </DataTableCell>
 
-      {/* Created */}
-      <div>
-        <div className="text-slate-300 md:hidden font-semibold">Created:</div>
+      <DataTableCell>
         <div className="text-slate-400">
           {/* Using placeholder since creation date is not in API response */}
           Recently
         </div>
-      </div>
+      </DataTableCell>
 
-      {/* Actions */}
-      <div className="flex flex-wrap gap-2">
-        {canActivate && (
-          <button
-            onClick={onActivate}
-            disabled={isLoading}
-            className="h-8 rounded border border-emerald-300/30 px-3 text-xs font-medium text-emerald-200 hover:bg-emerald-300/10 disabled:opacity-50 transition"
-          >
-            {isLoading ? "..." : "Activate"}
-          </button>
-        )}
-        {canSuspend && (
-          <button
-            onClick={onSuspend}
-            disabled={isLoading}
-            className="h-8 rounded border border-amber-300/30 px-3 text-xs font-medium text-amber-200 hover:bg-amber-300/10 disabled:opacity-50 transition"
-          >
-            {isLoading ? "..." : "Suspend"}
-          </button>
-        )}
-        {canRevoke && (
-          <button
-            onClick={onRevoke}
-            disabled={isLoading}
-            className="h-8 rounded border border-rose-300/30 px-3 text-xs font-medium text-rose-200 hover:bg-rose-300/10 disabled:opacity-50 transition"
-          >
-            {isLoading ? "..." : "Revoke"}
-          </button>
-        )}
-      </div>
-    </div>
+      <DataTableCell>
+        <div className="flex flex-wrap gap-2">
+          {canActivate && (
+            <button
+              onClick={onActivate}
+              disabled={isLoading}
+              className="h-8 rounded border border-emerald-300/30 px-3 text-xs font-medium text-emerald-200 hover:bg-emerald-300/10 disabled:opacity-50 transition"
+            >
+              {isLoading ? "..." : "Activate"}
+            </button>
+          )}
+          {canSuspend && (
+            <button
+              onClick={onSuspend}
+              disabled={isLoading}
+              className="h-8 rounded border border-amber-300/30 px-3 text-xs font-medium text-amber-200 hover:bg-amber-300/10 disabled:opacity-50 transition"
+            >
+              {isLoading ? "..." : "Suspend"}
+            </button>
+          )}
+          {canRevoke && (
+            <button
+              onClick={onRevoke}
+              disabled={isLoading}
+              className="h-8 rounded border border-rose-300/30 px-3 text-xs font-medium text-rose-200 hover:bg-rose-300/10 disabled:opacity-50 transition"
+            >
+              {isLoading ? "..." : "Revoke"}
+            </button>
+          )}
+        </div>
+      </DataTableCell>
+    </DataTableRow>
   );
 }
