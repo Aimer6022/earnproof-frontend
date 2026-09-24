@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiKey } from "@/lib/api/generated/v1";
-import { formatDate } from "@/lib/i18n";
+import { Timestamp } from "@/components/common/timestamp";
 
 export function OneTimeSecret({
   apiKey,
@@ -124,7 +124,7 @@ export function OneTimeSecret({
               </div>
               {apiKey.expiresAt && (
                 <div>
-                  <span className="font-semibold">Expires:</span> {formatDate(apiKey.expiresAt)}
+                  <span className="font-semibold">Expires:</span> <Timestamp value={apiKey.expiresAt} />
                 </div>
               )}
             </div>

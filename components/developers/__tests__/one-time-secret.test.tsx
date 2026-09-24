@@ -149,7 +149,10 @@ describe("OneTimeSecret", () => {
       />
     );
 
-    expect(screen.getByText("Dec 31, 2026")).toBeInTheDocument();
+    // The exact rendering now includes a time and disclosed timezone
+    // (#151: "Dec 31, 2026, 1:00 PM GMT+1"), so this only pins the
+    // locale/date-independent part rather than the full formatted string.
+    expect(screen.getByText(/Dec 31, 2026/)).toBeInTheDocument();
   });
 
   it("does not display expiry when not provided", () => {

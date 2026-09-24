@@ -4,10 +4,10 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { getAddress, requestAccess, signMessage } from "@stellar/freighter-api";
 import { ArtifactExport } from "@/components/proofs/artifact-export";
 import { PaymentListSkeleton } from "@/components/common/skeleton/payment-list-skeleton";
+import { Timestamp } from "@/components/common/timestamp";
 import { appConfig } from "@/config/app";
 import { apiClient, bearer } from "@/lib/api/client";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
-import { formatDateTime } from "@/lib/i18n";
 import { resolveIdempotencyKey, type IdempotencyState, type ProofIntent } from "@/lib/proofs/idempotency";
 import { createSubmissionGuard } from "@/lib/proofs/submission-guard";
 
@@ -578,9 +578,7 @@ function PaymentRow({
         <p className="mt-1 break-all text-xs text-slate-400">
           {payment.stellarTransactionHash}
         </p>
-        <p className="mt-1 text-xs text-slate-400">
-          {formatDateTime(payment.occurredAt)}
-        </p>
+        <Timestamp className="mt-1 block text-xs text-slate-400" value={payment.occurredAt} />
       </div>
       <select
         aria-label="Payment classification"

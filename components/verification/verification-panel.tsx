@@ -1,11 +1,12 @@
+import type { ReactNode } from "react";
 import { ArtifactExport } from "@/components/proofs/artifact-export";
+import { Timestamp } from "@/components/common/timestamp";
 import { PrintableProofSummary } from "@/components/verification/printable-proof-summary";
 import { appConfig } from "@/config/app";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
 import {
   defineMessages,
   formatDateRange,
-  formatDateTime,
   formatMessage,
   formatNumber,
 } from "@/lib/i18n";
@@ -73,16 +74,7 @@ export const statusStyles: Record<VerifyProofResponse["status"], string> = {
   invalid: "border-rose-300/30 bg-rose-300/10 text-rose-100",
 };
 
-/**
- * Kept as a named export for existing callers; the hard-coded "en" locale it
- * used to carry now comes from `lib/i18n`, which defaults to the app locale
- * and can be overridden per call.
- */
-export function formatDate(value: string) {
-  return formatDateTime(value);
-}
-
-export function ResultItem({ label, value }: { label: string; value: string }) {
+export function ResultItem({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs font-semibold uppercase text-slate-400">{label}</dt>
@@ -137,7 +129,7 @@ export function VerificationPanel({ result }: { result: VerifyProofResponse | nu
                 result.credential.claim.periodEnd,
               )}
             />
-            <ResultItem label="Expires" value={formatDate(result.proof.expiresAt)} />
+            <ResultItem label="Expires" value={<Timestamp value={result.proof.expiresAt} />} />
             <ResultItem
               label="Wallet hash"
               value={result.credential.subject.walletHash}

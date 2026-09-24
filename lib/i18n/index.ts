@@ -16,6 +16,7 @@ export {
   formatDate,
   formatDateRange,
   formatDateTime,
+  formatDateTimeWithZone,
   formatList,
   formatNumber,
   formatPlural,

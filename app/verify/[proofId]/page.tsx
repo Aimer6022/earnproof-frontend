@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { ReactNode, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { PageHeading } from "@/components/common/page-heading";
 import { pageContainer } from "@/components/common/production-ui";
 import { PublicShell } from "@/components/layout/public-shell";
+import { Timestamp } from "@/components/common/timestamp";
 import { PrintableProofSummary } from "@/components/verification/printable-proof-summary";
 import { apiClient } from "@/lib/api/client";
-import { formatDateRange, formatDateTime, formatMessage } from "@/lib/i18n";
+import { formatDateRange, formatMessage } from "@/lib/i18n";
 import type { VerifyProofResponse } from "@/lib/api/generated/v1";
 
 type VerificationState = {
@@ -16,7 +17,7 @@ type VerificationState = {
   error: string | null;
 };
 
-function ResultItem({ label, value }: { label: string; value: string }) {
+function ResultItem({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs font-semibold uppercase text-slate-400">{label}</dt>
@@ -151,16 +152,16 @@ function VerificationResult({ result }: { result: VerifyProofResponse }) {
               />
               <ResultItem
                 label="Issued"
-                value={formatDateTime(result.credential.issuedAt)}
+                value={<Timestamp value={result.credential.issuedAt} />}
               />
               <ResultItem
                 label="Expires"
-                value={formatDateTime(result.credential.expiresAt)}
+                value={<Timestamp value={result.credential.expiresAt} />}
               />
               {result.proof.revokedAt && (
                 <ResultItem
                   label="Revoked"
-                  value={formatDateTime(result.proof.revokedAt)}
+                  value={<Timestamp value={result.proof.revokedAt} />}
                 />
               )}
               <ResultItem

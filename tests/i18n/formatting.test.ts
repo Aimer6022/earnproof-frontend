@@ -11,6 +11,7 @@ import {
   formatDate,
   formatDateRange,
   formatDateTime,
+  formatDateTimeWithZone,
   formatList,
   formatNumber,
   formatPlural,
@@ -61,6 +62,56 @@ describe("dates and times", () => {
   it("formats a time without a date component", () => {
     expect(formatTime(MOMENT, "en-US")).not.toContain("2026");
     expect(formatDateTime(MOMENT, "en-US")).toContain("2026");
+  });
+});
+
+describe("timezone-disclosing date/time (#151)", () => {
+  it("appends the timezone abbreviation to the exact value", () => {
+    const withZone = formatDateTimeWithZone(MOMENT, "en-US", "America/Los_Angeles");
+    // PDT in August (DST) — the exact abbreviation is locale/ICU-version
+    // dependent, but *some* non-date, non-time trailing token must appear.
+    expect(withZone).toMatch(/[A-Z]{2,5}$/);
+    expect(withZone).toContain("2026");
+  });
+
+  it("resolves the same instant to different wall-clock times in different zones, each with its own zone label", () => {
+    const losAngeles = formatDateTimeWithZone(MOMENT, "en-US", "America/Los_Angeles");
+    const tokyo = formatDateTimeWithZone(MOMENT, "en-US", "Asia/Tokyo");
+    expect(losAngeles).not.toBe(tokyo);
+  });
+
+  it("disambiguates a DST fall-back hour that formatDateTime alone cannot", () => {
+    // 2026-11-01 01:30 America/Los_Angeles is ambiguous — it occurs twice,
+    // once in PDT and once in PST, an hour apart. The UTC instant is
+    // unambiguous; the timezone-qualified label is what tells a reader
+    // which of the two 1:30 AMs this is.
+    const beforeFallBack = new Date("2026-11-01T08:30:00.000Z"); // 01:30 PDT
+    const afterFallBack = new Date("2026-11-01T09:30:00.000Z"); // 01:30 PST
+    const before = formatDateTimeWithZone(beforeFallBack, "en-US", "America/Los_Angeles");
+    const after = formatDateTimeWithZone(afterFallBack, "en-US", "America/Los_Angeles");
+    expect(before).not.toBe(after);
+    expect(before).toContain("1:30");
+    expect(after).toContain("1:30");
+  });
+
+  it("crosses a day boundary correctly across timezones (UTC midnight is not local midnight)", () => {
+    const utcMidnight = new Date("2026-03-15T00:00:00.000Z");
+    const tokyo = formatDateTimeWithZone(utcMidnight, "en-US", "Asia/Tokyo");
+    const losAngeles = formatDateTimeWithZone(utcMidnight, "en-US", "America/Los_Angeles");
+    // Tokyo (UTC+9) has already crossed into the 15th; Los Angeles (UTC-7/8)
+    // has not yet reached it — the same instant, two different calendar days.
+    expect(tokyo).toContain("15");
+    expect(losAngeles).toContain("14");
+  });
+
+  it("falls back to the runtime timezone when none is given, without throwing", () => {
+    expect(() => formatDateTimeWithZone(MOMENT, "en-US")).not.toThrow();
+    expect(formatDateTimeWithZone(MOMENT, "en-US")).toContain("2026");
+  });
+
+  it("renders an unparseable value as-is instead of throwing", () => {
+    expect(() => formatDateTimeWithZone("not-a-date", "en-US")).not.toThrow();
+    expect(formatDateTimeWithZone("not-a-date", "en-US")).toBe("not-a-date");
   });
 });
 

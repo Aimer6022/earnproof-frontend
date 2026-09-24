@@ -1,4 +1,4 @@
-import { defineMessages, formatDateRange, formatDateTime, formatMessage } from "@/lib/i18n";
+import { defineMessages, formatDateRange, formatDateTimeWithZone, formatMessage } from "@/lib/i18n";
 import { usePrintMode } from "@/lib/use-print-mode";
 
 /**
@@ -105,16 +105,16 @@ export function PrintableProofSummary({ result }: { result: PrintableProofResult
           </div>
           <div>
             <dt className="font-semibold">Issued</dt>
-            <dd>{formatDateTime(result.credential.issuedAt)}</dd>
+            <dd>{formatDateTimeWithZone(result.credential.issuedAt)}</dd>
           </div>
           <div>
             <dt className="font-semibold">Expires</dt>
-            <dd>{formatDateTime(result.credential.expiresAt)}</dd>
+            <dd>{formatDateTimeWithZone(result.credential.expiresAt)}</dd>
           </div>
           {result.proof.revokedAt ? (
             <div>
               <dt className="font-semibold">Revoked</dt>
-              <dd>{formatDateTime(result.proof.revokedAt)}</dd>
+              <dd>{formatDateTimeWithZone(result.proof.revokedAt)}</dd>
             </div>
           ) : null}
           <div>
