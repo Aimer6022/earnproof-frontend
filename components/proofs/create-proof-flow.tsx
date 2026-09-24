@@ -10,8 +10,7 @@ import { NetworkMismatchAlert } from "@/components/wallet/network-mismatch-alert
 import { appConfig } from "@/config/app";
 import { apiClient, bearer } from "@/lib/api/client";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
-import { formatDateTime } from "@/lib/i18n";
-import { resolveIdempotencyKey, type IdempotencyState, type ProofIntent } from "@/lib/proofs/idempotency";
+import { resolveIdempotencyKey, type IdempotencyState } from "@/lib/proofs/idempotency";
 import { createSubmissionGuard } from "@/lib/proofs/submission-guard";
 import {
   isSigningAllowed,
