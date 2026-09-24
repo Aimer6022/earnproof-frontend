@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { updateIssuer, formatIssuerStatus, getIssuerStatusTone } from "@/lib/api/issuers";
+import { canPerformIssuerTransition, updateIssuer, formatIssuerStatus, getIssuerStatusTone } from "@/lib/api/issuers";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
+import { EditIssuerForm } from "@/components/issuers/edit-issuer-form";
 import { StatusBadge } from "@/components/common/production-ui";
 import { formatMessage } from "@/lib/i18n";
 import type { Issuer, Organization } from "@/lib/api/generated/v1";
@@ -18,16 +19,19 @@ export function IssuerList({
   organizations,
   loading,
   token,
+  role,
   onIssuerUpdated,
 }: {
   issuers: Issuer[];
   organizations: Organization[];
   loading: boolean;
   token: string;
+  role: string | undefined;
   onIssuerUpdated: (issuer: Issuer) => void;
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingIssuerId, setEditingIssuerId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     type: "suspend" | "activate" | "revoke";
     issuerId: string;
@@ -99,35 +103,51 @@ export function IssuerList({
           <div>Actions</div>
         </div>
 
-        {issuers.map((issuer) => (
-          <IssuerRow
-            key={issuer.id}
-            issuer={issuer}
-            organizationName={getOrganizationName(issuer.organizationId)}
-            isLoading={actionLoading === issuer.id}
-            onSuspend={() => 
-              setConfirmAction({
-                type: "suspend",
-                issuerId: issuer.id,
-                issuerName: issuer.name,
-              })
-            }
-            onActivate={() => 
-              setConfirmAction({
-                type: "activate",
-                issuerId: issuer.id,
-                issuerName: issuer.name,
-              })
-            }
-            onRevoke={() =>
-              setConfirmAction({
-                type: "revoke",
-                issuerId: issuer.id,
-                issuerName: issuer.name,
-              })
-            }
-          />
-        ))}
+        {issuers.map((issuer) =>
+          editingIssuerId === issuer.id ? (
+            <EditIssuerForm
+              issuer={issuer}
+              key={issuer.id}
+              onCancel={() => setEditingIssuerId(null)}
+              onIssuerUpdated={(updated) => {
+                onIssuerUpdated(updated);
+                setEditingIssuerId(null);
+              }}
+              organizations={organizations}
+              token={token}
+            />
+          ) : (
+            <IssuerRow
+              key={issuer.id}
+              issuer={issuer}
+              organizationName={getOrganizationName(issuer.organizationId)}
+              isLoading={actionLoading === issuer.id}
+              role={role}
+              onEdit={() => setEditingIssuerId(issuer.id)}
+              onSuspend={() =>
+                setConfirmAction({
+                  type: "suspend",
+                  issuerId: issuer.id,
+                  issuerName: issuer.name,
+                })
+              }
+              onActivate={() =>
+                setConfirmAction({
+                  type: "activate",
+                  issuerId: issuer.id,
+                  issuerName: issuer.name,
+                })
+              }
+              onRevoke={() =>
+                setConfirmAction({
+                  type: "revoke",
+                  issuerId: issuer.id,
+                  issuerName: issuer.name,
+                })
+              }
+            />
+          ),
+        )}
       </div>
 
       {confirmAction && (
@@ -173,6 +193,8 @@ function IssuerRow({
   issuer,
   organizationName,
   isLoading,
+  role,
+  onEdit,
   onSuspend,
   onActivate,
   onRevoke,
@@ -180,13 +202,22 @@ function IssuerRow({
   issuer: Issuer;
   organizationName: string;
   isLoading: boolean;
+  role: string | undefined;
+  onEdit: () => void;
   onSuspend: () => void;
   onActivate: () => void;
   onRevoke: () => void;
 }) {
-  const canSuspend = issuer.status === "ACTIVE";
-  const canActivate = issuer.status === "SUSPENDED" || issuer.status === "PENDING";
-  const canRevoke = issuer.status !== "REVOKED";
+  // A transition is offered only when it's both a valid status change for
+  // this issuer *and* something the current role is permitted to do
+  // (#141). A PENDING issuer's only role-appropriate action for an
+  // ISSUER-role viewer, for example, is "activate" — "revoke" never
+  // appears for them regardless of status.
+  const canSuspend = issuer.status === "ACTIVE" && canPerformIssuerTransition(role, "suspend");
+  const canActivate =
+    (issuer.status === "SUSPENDED" || issuer.status === "PENDING") &&
+    canPerformIssuerTransition(role, "activate");
+  const canRevoke = issuer.status !== "REVOKED" && canPerformIssuerTransition(role, "revoke");
 
   return (
     <div className="grid gap-3 rounded-md border border-white/10 bg-slate-950 p-4 text-sm md:grid-cols-[2fr_1fr_1fr_auto] md:items-center md:gap-4">
@@ -214,6 +245,13 @@ function IssuerRow({
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
+        <button
+          onClick={onEdit}
+          disabled={isLoading}
+          className="h-8 rounded border border-white/15 px-3 text-xs font-medium text-white hover:bg-white/10 disabled:opacity-50 transition"
+        >
+          Edit
+        </button>
         {canActivate && (
           <button
             onClick={onActivate}
@@ -241,6 +279,13 @@ function IssuerRow({
             {isLoading ? "..." : "Revoke"}
           </button>
         )}
+        <button
+          disabled
+          className="h-8 rounded border border-gray-700 px-3 text-xs font-medium text-gray-500 cursor-not-allowed"
+          title="Contract synchronization is not yet available: no sync endpoint exists for issuers in the current API"
+        >
+          Sync contract
+        </button>
       </div>
     </div>
   );

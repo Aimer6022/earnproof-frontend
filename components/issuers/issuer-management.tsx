@@ -179,6 +179,7 @@ export function IssuerManagement() {
           organizations={organizations}
           loading={loading}
           token={session.token}
+          role={session.user.role}
           onIssuerUpdated={handleIssuerUpdated}
         />
       </section>
