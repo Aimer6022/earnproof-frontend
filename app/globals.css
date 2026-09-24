@@ -40,3 +40,22 @@ textarea {
 ::selection {
   background: rgba(103, 232, 249, 0.24);
 }
+
+/*
+ * Print baseline (#148): the app is dark-themed by default, which prints
+ * as a near-solid ink block and is unreadable once a printer or PDF
+ * renderer falls back to monochrome. Printed pages always use a light
+ * background with dark text regardless of the on-screen theme, and long
+ * identifiers (proof IDs, hashes) wrap instead of being clipped at the
+ * page edge.
+ */
+@media print {
+  body {
+    background: #ffffff;
+    color: #0f172a;
+  }
+
+  * {
+    overflow-wrap: anywhere;
+  }
+}

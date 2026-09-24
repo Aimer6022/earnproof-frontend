@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeading } from "@/components/common/page-heading";
 import { pageContainer } from "@/components/common/production-ui";
 import { PublicShell } from "@/components/layout/public-shell";
+import { PrintableProofSummary } from "@/components/verification/printable-proof-summary";
 import { apiClient } from "@/lib/api/client";
 import { formatDateRange, formatDateTime, formatMessage } from "@/lib/i18n";
 import type { VerifyProofResponse } from "@/lib/api/generated/v1";
@@ -73,7 +74,7 @@ function getStatusMessage(result: VerifyProofResponse["result"]): string {
 
 function LoadingState() {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-8">
+    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-8 print:hidden">
       <div className="flex items-center gap-3">
         <div className="animate-spin rounded-full h-5 w-5 border-2 border-cyan-300 border-t-transparent"></div>
         <span className="text-slate-300">Verifying proof...</span>
@@ -84,7 +85,7 @@ function LoadingState() {
 
 function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
-    <div className="rounded-lg border border-rose-300/30 bg-rose-300/10 p-6">
+    <div className="rounded-lg border border-rose-300/30 bg-rose-300/10 p-6 print:hidden">
       <h3 className="text-lg font-semibold text-rose-100 mb-3">Verification failed</h3>
       <p className="text-sm text-slate-300 mb-4">{error}</p>
       <div className="flex flex-col sm:flex-row gap-3">
@@ -110,104 +111,110 @@ function VerificationResult({ result }: { result: VerifyProofResponse }) {
 
   return (
     <div className="space-y-6">
-      <div className={`inline-flex rounded-md border px-4 py-2 text-sm font-semibold uppercase ${statusStyle.border} ${statusStyle.bg} ${statusStyle.text}`}>
-        {result.status}
-      </div>
+      {/* Interactive on-screen presentation is excluded from print; only
+          PrintableProofSummary below renders when printing. */}
+      <div className="space-y-6 print:hidden">
+        <div className={`inline-flex rounded-md border px-4 py-2 text-sm font-semibold uppercase ${statusStyle.border} ${statusStyle.bg} ${statusStyle.text}`}>
+          {result.status}
+        </div>
 
-      <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6">
-        <p className="text-sm leading-6 text-slate-300 mb-4">
-          {getStatusMessage(result.result)}
-        </p>
+        <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6">
+          <p className="text-sm leading-6 text-slate-300 mb-4">
+            {getStatusMessage(result.result)}
+          </p>
 
-        {result.credential && result.proof ? (
-          <dl className="grid gap-4 text-sm text-slate-300 sm:grid-cols-2">
-            <ResultItem label="Proof ID" value={result.proof.id} />
-            <ResultItem label="Network" value={result.proof.network} />
-            <ResultItem
-              label="Claim type"
-              value="Minimum income verification"
-            />
-            <ResultItem
-              label="Threshold"
-              value={formatMessage(">= {amount} {asset}", {
-                amount: result.credential.claim.thresholdAmount,
-                asset: result.credential.claim.assetCode,
-              })}
-            />
-            <ResultItem
-              label="Qualifying payments"
-              value={String(result.credential.claim.qualifyingPaymentCount)}
-            />
-            <ResultItem
-              label="Verification period"
-              value={formatDateRange(
-                result.credential.claim.periodStart,
-                result.credential.claim.periodEnd,
-              )}
-            />
-            <ResultItem 
-              label="Issued" 
-              value={formatDateTime(result.credential.issuedAt)}
-            />
-            <ResultItem 
-              label="Expires" 
-              value={formatDateTime(result.credential.expiresAt)}
-            />
-            {result.proof.revokedAt && (
-              <ResultItem 
-                label="Revoked" 
-                value={formatDateTime(result.proof.revokedAt)}
+          {result.credential && result.proof ? (
+            <dl className="grid gap-4 text-sm text-slate-300 sm:grid-cols-2">
+              <ResultItem label="Proof ID" value={result.proof.id} />
+              <ResultItem label="Network" value={result.proof.network} />
+              <ResultItem
+                label="Claim type"
+                value="Minimum income verification"
               />
-            )}
-            <ResultItem
-              label="Wallet hash"
-              value={`${result.credential.subject.walletHash.substring(0, 16)}...`}
-            />
-          </dl>
-        ) : (
-          <div className="text-center py-8">
-            <h3 className="text-lg font-semibold text-white mb-2">No proof details available</h3>
-            <p className="text-sm text-slate-300">
-              The proof identifier was not found or the credential details are not accessible.
-            </p>
+              <ResultItem
+                label="Threshold"
+                value={formatMessage(">= {amount} {asset}", {
+                  amount: result.credential.claim.thresholdAmount,
+                  asset: result.credential.claim.assetCode,
+                })}
+              />
+              <ResultItem
+                label="Qualifying payments"
+                value={String(result.credential.claim.qualifyingPaymentCount)}
+              />
+              <ResultItem
+                label="Verification period"
+                value={formatDateRange(
+                  result.credential.claim.periodStart,
+                  result.credential.claim.periodEnd,
+                )}
+              />
+              <ResultItem
+                label="Issued"
+                value={formatDateTime(result.credential.issuedAt)}
+              />
+              <ResultItem
+                label="Expires"
+                value={formatDateTime(result.credential.expiresAt)}
+              />
+              {result.proof.revokedAt && (
+                <ResultItem
+                  label="Revoked"
+                  value={formatDateTime(result.proof.revokedAt)}
+                />
+              )}
+              <ResultItem
+                label="Wallet hash"
+                value={`${result.credential.subject.walletHash.substring(0, 16)}...`}
+              />
+            </dl>
+          ) : (
+            <div className="text-center py-8">
+              <h3 className="text-lg font-semibold text-white mb-2">No proof details available</h3>
+              <p className="text-sm text-slate-300">
+                The proof identifier was not found or the credential details are not accessible.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {result.credential?.privacy && (
+          <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/5 p-4">
+            <h3 className="text-sm font-semibold text-cyan-200 mb-2">Privacy notice</h3>
+            <ul className="space-y-1 text-xs text-slate-300">
+              {result.credential.privacy.exactIncomeHidden && (
+                <li className="flex items-start gap-2">
+                  <span className="text-cyan-300 mt-0.5">•</span>
+                  <span>Exact income amounts are hidden to protect financial privacy</span>
+                </li>
+              )}
+              {result.credential.privacy.sourceTransactionsHidden && (
+                <li className="flex items-start gap-2">
+                  <span className="text-cyan-300 mt-0.5">•</span>
+                  <span>Source transaction details are hidden to protect payment privacy</span>
+                </li>
+              )}
+            </ul>
           </div>
         )}
-      </div>
 
-      {result.credential?.privacy && (
-        <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/5 p-4">
-          <h3 className="text-sm font-semibold text-cyan-200 mb-2">Privacy notice</h3>
-          <ul className="space-y-1 text-xs text-slate-300">
-            {result.credential.privacy.exactIncomeHidden && (
-              <li className="flex items-start gap-2">
-                <span className="text-cyan-300 mt-0.5">•</span>
-                <span>Exact income amounts are hidden to protect financial privacy</span>
-              </li>
-            )}
-            {result.credential.privacy.sourceTransactionsHidden && (
-              <li className="flex items-start gap-2">
-                <span className="text-cyan-300 mt-0.5">•</span>
-                <span>Source transaction details are hidden to protect payment privacy</span>
-              </li>
-            )}
-          </ul>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Link
+            href="/verify"
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/15 px-6 text-sm font-medium text-white transition hover:bg-white/10"
+          >
+            Verify another proof
+          </Link>
+          <Link
+            href="/proofs"
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-300/50 bg-cyan-300 px-6 text-sm font-medium text-slate-950 transition hover:bg-cyan-200"
+          >
+            Create your own proof
+          </Link>
         </div>
-      )}
-
-      <div className="flex flex-col sm:flex-row gap-3">
-        <Link
-          href="/verify"
-          className="inline-flex h-10 items-center justify-center rounded-lg border border-white/15 px-6 text-sm font-medium text-white transition hover:bg-white/10"
-        >
-          Verify another proof
-        </Link>
-        <Link
-          href="/proofs"
-          className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-300/50 bg-cyan-300 px-6 text-sm font-medium text-slate-950 transition hover:bg-cyan-200"
-        >
-          Create your own proof
-        </Link>
       </div>
+
+      <PrintableProofSummary result={result} />
     </div>
   );
 }
