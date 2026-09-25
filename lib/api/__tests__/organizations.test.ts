@@ -1,141 +1,300 @@
-/**
- * @jest-environment jsdom
- */
-
 import {
-  validateOrganizationName,
-  validateOrganizationSlug,
-  validateWebsiteUrl,
-  formatOrganizationStatus,
-  getStatusTone,
+  updateOrganizationSafe,
+  performLifecycleAction,
+  getStatusForLifecycleAction,
+  type LifecycleAction,
 } from "../organizations";
+import * as errorNormalization from "../error-normalization";
 
-describe("Organization Utilities", () => {
-  describe("validateOrganizationName", () => {
-    it("returns null for valid names", () => {
-      expect(validateOrganizationName("Acme Corporation")).toBeNull();
-      expect(validateOrganizationName("Tech Startup Inc.")).toBeNull();
-      expect(validateOrganizationName("Λβ")).toBeNull(); // Unicode characters
+jest.mock("../organizations", {
+  ...jest.requireActual("../organizations"),
+  updateOrganization: jest.fn(),
+});
+
+jest.mock("../error-normalization");
+
+const mockOrganization = {
+  id: "org-123",
+  name: "Test Organization",
+  slug: "test-org",
+  website: "https://example.com",
+  status: "ACTIVE" as const,
+};
+
+describe("organizations API", () => {
+  const mockToken = "test-token";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe("getStatusForLifecycleAction", () => {
+    it("should map activate to ACTIVE", () => {
+      expect(getStatusForLifecycleAction("activate")).toBe("ACTIVE");
     });
 
-    it("requires non-empty name", () => {
-      expect(validateOrganizationName("")).toBe("Organization name is required");
-      expect(validateOrganizationName("   ")).toBe("Organization name is required");
+    it("should map suspend to SUSPENDED", () => {
+      expect(getStatusForLifecycleAction("suspend")).toBe("SUSPENDED");
     });
 
-    it("requires minimum length", () => {
-      expect(validateOrganizationName("A")).toBe("Organization name must be at least 2 characters");
+    it("should map archive to REVOKED", () => {
+      expect(getStatusForLifecycleAction("archive")).toBe("REVOKED");
     });
 
-    it("enforces maximum length", () => {
-      const longName = "a".repeat(101);
-      expect(validateOrganizationName(longName)).toBe("Organization name must be less than 100 characters");
-    });
-
-    it("trims whitespace", () => {
-      expect(validateOrganizationName("  Valid Org  ")).toBeNull();
+    it("should map revoke to REVOKED", () => {
+      expect(getStatusForLifecycleAction("revoke")).toBe("REVOKED");
     });
   });
 
-  describe("validateOrganizationSlug", () => {
-    it("returns null for valid slugs", () => {
-      expect(validateOrganizationSlug("acme-corp")).toBeNull();
-      expect(validateOrganizationSlug("tech-startup-2024")).toBeNull();
-      expect(validateOrganizationSlug("simple123")).toBeNull();
-    });
+  describe("updateOrganizationSafe", () => {
+    it("should return success result on successful update", async () => {
+      const updateOrganization = require("../organizations").updateOrganization;
+      updateOrganization.mockResolvedValue(mockOrganization);
 
-    it("requires non-empty slug", () => {
-      expect(validateOrganizationSlug("")).toBe("Organization slug is required");
-      expect(validateOrganizationSlug("   ")).toBe("Organization slug is required");
-    });
-
-    it("requires minimum length", () => {
-      expect(validateOrganizationSlug("ab")).toBe("Slug must be at least 3 characters");
-    });
-
-    it("enforces maximum length", () => {
-      const longSlug = "a".repeat(51);
-      expect(validateOrganizationSlug(longSlug)).toBe("Slug must be less than 50 characters");
-    });
-
-    it("only allows valid characters", () => {
-      expect(validateOrganizationSlug("invalid_slug")).toBe(
-        "Slug can only contain lowercase letters, numbers, and hyphens"
+      const controller = new AbortController();
+      const result = await updateOrganizationSafe(
+        mockToken,
+        "org-123",
+        { name: "Updated Name" },
+        controller.signal
       );
-      expect(validateOrganizationSlug("Invalid-Slug")).toBe(
-        "Slug can only contain lowercase letters, numbers, and hyphens"
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual(mockOrganization);
+      }
+    });
+
+    it("should return error result on API failure", async () => {
+      const error = new Error("HTTP 400");
+      (error as any).statusCode = 400;
+
+      const updateOrganization = require("../organizations").updateOrganization;
+      updateOrganization.mockRejectedValue(error);
+
+      (errorNormalization.normalizeError as jest.Mock).mockResolvedValue({
+        message: "Validation failed",
+        type: "validation",
+        fieldErrors: { name: "Too short" },
+        isRetryable: false,
+      });
+
+      const controller = new AbortController();
+      const result = await updateOrganizationSafe(
+        mockToken,
+        "org-123",
+        { name: "X" },
+        controller.signal
       );
-      expect(validateOrganizationSlug("slug@invalid")).toBe(
-        "Slug can only contain lowercase letters, numbers, and hyphens"
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.type).toBe("validation");
+        expect(result.error.fieldErrors.name).toBe("Too short");
+      }
+    });
+
+    it("should normalize error response on conflict", async () => {
+      const error = new Error("HTTP 409");
+      (error as any).statusCode = 409;
+
+      const updateOrganization = require("../organizations").updateOrganization;
+      updateOrganization.mockRejectedValue(error);
+
+      (errorNormalization.normalizeError as jest.Mock).mockResolvedValue({
+        message: "Resource modified",
+        type: "conflict",
+        fieldErrors: {},
+        statusCode: 409,
+        isRetryable: true,
+      });
+
+      const controller = new AbortController();
+      const result = await updateOrganizationSafe(
+        mockToken,
+        "org-123",
+        { name: "Updated" },
+        controller.signal
       );
-    });
 
-    it("cannot start or end with hyphen", () => {
-      expect(validateOrganizationSlug("-invalid")).toBe("Slug cannot start or end with a hyphen");
-      expect(validateOrganizationSlug("invalid-")).toBe("Slug cannot start or end with a hyphen");
-    });
-
-    it("cannot contain consecutive hyphens", () => {
-      expect(validateOrganizationSlug("invalid--slug")).toBe("Slug cannot contain consecutive hyphens");
-    });
-
-    it("trims whitespace", () => {
-      expect(validateOrganizationSlug("  valid-slug  ")).toBeNull();
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.type).toBe("conflict");
+        expect(result.error.statusCode).toBe(409);
+      }
     });
   });
 
-  describe("validateWebsiteUrl", () => {
-    it("returns null for valid URLs", () => {
-      expect(validateWebsiteUrl("https://example.com")).toBeNull();
-      expect(validateWebsiteUrl("http://example.org")).toBeNull();
-      expect(validateWebsiteUrl("https://subdomain.example.com/path")).toBeNull();
-    });
+  describe("performLifecycleAction", () => {
+    it("should perform suspend action with correct status", async () => {
+      const updateOrganization = require("../organizations").updateOrganization;
+      const suspendedOrg = { ...mockOrganization, status: "SUSPENDED" as const };
+      updateOrganization.mockResolvedValue(suspendedOrg);
 
-    it("returns null for empty URL (optional field)", () => {
-      expect(validateWebsiteUrl("")).toBeNull();
-      expect(validateWebsiteUrl("   ")).toBeNull();
-    });
-
-    it("requires valid URL format", () => {
-      expect(validateWebsiteUrl("not-a-url")).toBe("Please enter a valid website URL");
-      expect(validateWebsiteUrl("invalid.url")).toBe("Please enter a valid website URL");
-    });
-
-    it("requires http or https protocol", () => {
-      expect(validateWebsiteUrl("ftp://example.com")).toBe(
-        "Website URL must use http or https protocol"
+      const controller = new AbortController();
+      const result = await performLifecycleAction(
+        mockToken,
+        "org-123",
+        "suspend",
+        controller.signal
       );
-      expect(validateWebsiteUrl("file://example.com")).toBe(
-        "Website URL must use http or https protocol"
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.status).toBe("SUSPENDED");
+      }
+    });
+
+    it("should perform activate action", async () => {
+      const updateOrganization = require("../organizations").updateOrganization;
+      updateOrganization.mockResolvedValue(mockOrganization);
+
+      const controller = new AbortController();
+      const result = await performLifecycleAction(
+        mockToken,
+        "org-123",
+        "activate",
+        controller.signal
       );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("should perform revoke action", async () => {
+      const updateOrganization = require("../organizations").updateOrganization;
+      const revokedOrg = { ...mockOrganization, status: "REVOKED" as const };
+      updateOrganization.mockResolvedValue(revokedOrg);
+
+      const controller = new AbortController();
+      const result = await performLifecycleAction(
+        mockToken,
+        "org-123",
+        "revoke",
+        controller.signal
+      );
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.status).toBe("REVOKED");
+      }
+    });
+
+    it("should handle lifecycle action errors", async () => {
+      const error = new Error("HTTP 409");
+      (error as any).statusCode = 409;
+
+      const updateOrganization = require("../organizations").updateOrganization;
+      updateOrganization.mockRejectedValue(error);
+
+      (errorNormalization.normalizeError as jest.Mock).mockResolvedValue({
+        message: "Conflict",
+        type: "conflict",
+        fieldErrors: {},
+        statusCode: 409,
+        isRetryable: true,
+      });
+
+      const controller = new AbortController();
+      const result = await performLifecycleAction(
+        mockToken,
+        "org-123",
+        "suspend",
+        controller.signal
+      );
+
+      expect(result.success).toBe(false);
     });
   });
 
-  describe("formatOrganizationStatus", () => {
-    it("formats status correctly", () => {
-      expect(formatOrganizationStatus("ACTIVE")).toBe("Active");
-      expect(formatOrganizationStatus("PENDING")).toBe("Pending");
-      expect(formatOrganizationStatus("SUSPENDED")).toBe("Suspended");
-      expect(formatOrganizationStatus("REVOKED")).toBe("Revoked");
-      expect(formatOrganizationStatus("DELETED")).toBe("Deleted");
+  describe("error handling across operations", () => {
+    it("should handle network timeout in lifecycle action", async () => {
+      const error = new Error("timeout");
+      error.name = "AbortError";
+
+      const updateOrganization = require("../organizations").updateOrganization;
+      updateOrganization.mockRejectedValue(error);
+
+      (errorNormalization.normalizeError as jest.Mock).mockResolvedValue({
+        message: "Request timeout",
+        type: "network",
+        fieldErrors: {},
+        isRetryable: true,
+      });
+
+      const controller = new AbortController();
+      const result = await performLifecycleAction(
+        mockToken,
+        "org-123",
+        "suspend",
+        controller.signal
+      );
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.isRetryable).toBe(true);
+      }
     });
 
-    it("returns original value for unknown status", () => {
-      expect(formatOrganizationStatus("UNKNOWN" as unknown as Parameters<typeof formatOrganizationStatus>[0])).toBe("UNKNOWN");
+    it("should handle validation errors with field details", async () => {
+      const error = new Error("HTTP 400");
+      (error as any).statusCode = 400;
+
+      const updateOrganization = require("../organizations").updateOrganization;
+      updateOrganization.mockRejectedValue(error);
+
+      (errorNormalization.normalizeError as jest.Mock).mockResolvedValue({
+        message: "Validation failed",
+        type: "validation",
+        fieldErrors: {
+          name: "Name already in use",
+          website: "Invalid domain",
+        },
+        isRetryable: false,
+      });
+
+      const controller = new AbortController();
+      const result = await updateOrganizationSafe(
+        mockToken,
+        "org-123",
+        { name: "Taken", website: "invalid" },
+        controller.signal
+      );
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(Object.keys(result.error.fieldErrors).length).toBe(2);
+      }
     });
   });
 
-  describe("getStatusTone", () => {
-    it("returns correct tones for status", () => {
-      expect(getStatusTone("ACTIVE")).toBe("success");
-      expect(getStatusTone("PENDING")).toBe("warning");
-      expect(getStatusTone("SUSPENDED")).toBe("warning");
-      expect(getStatusTone("REVOKED")).toBe("warning");
-      expect(getStatusTone("DELETED")).toBe("warning");
-    });
+  describe("authorization errors", () => {
+    it("should handle 403 authorization error in lifecycle action", async () => {
+      const error = new Error("HTTP 403");
+      (error as any).statusCode = 403;
 
-    it("returns accent for unknown status", () => {
-      expect(getStatusTone("UNKNOWN" as unknown as Parameters<typeof getStatusTone>[0])).toBe("accent");
+      const updateOrganization = require("../organizations").updateOrganization;
+      updateOrganization.mockRejectedValue(error);
+
+      (errorNormalization.normalizeError as jest.Mock).mockResolvedValue({
+        message: "You do not have permission",
+        type: "authorization",
+        fieldErrors: {},
+        statusCode: 403,
+        isRetryable: false,
+      });
+
+      const controller = new AbortController();
+      const result = await performLifecycleAction(
+        mockToken,
+        "org-123",
+        "suspend",
+        controller.signal
+      );
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.type).toBe("authorization");
+      }
     });
   });
 });

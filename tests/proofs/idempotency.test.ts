@@ -35,6 +35,28 @@ describe("intentSignature", () => {
   });
 });
 
+describe("intentSignature with a non-payment intent shape", () => {
+  it("is stable regardless of sourceIds order (generic order-insensitive field)", () => {
+    const a = intentSignature({ sourceIds: ["src_2", "src_1"], policy: "SUM" });
+    const b = intentSignature({ sourceIds: ["src_1", "src_2"], policy: "SUM" });
+    expect(a).toBe(b);
+  });
+
+  it("changes when a field outside the order-insensitive list changes, even if it's an array", () => {
+    // `intervals` isn't in the order-insensitive allowlist, so its element
+    // order is significant to the signature, unlike selectedPaymentIds/sourceIds.
+    const a = intentSignature({ intervals: ["a", "b"] });
+    const b = intentSignature({ intervals: ["b", "a"] });
+    expect(a).not.toBe(b);
+  });
+
+  it("is independent of key insertion order", () => {
+    const a = intentSignature({ lowerBound: "100", upperBound: "500" });
+    const b = intentSignature({ upperBound: "500", lowerBound: "100" });
+    expect(a).toBe(b);
+  });
+});
+
 describe("resolveIdempotencyKey", () => {
   it("mints a new key when there is no previous attempt", () => {
     const resolved = resolveIdempotencyKey(null, baseIntent);
@@ -54,7 +76,7 @@ describe("resolveIdempotencyKey", () => {
     const first = resolveIdempotencyKey(null, baseIntent);
     const retry = resolveIdempotencyKey(first, {
       ...baseIntent,
-      selectedPaymentIds: [...baseIntent.selectedPaymentIds].reverse(),
+      selectedPaymentIds: [...(baseIntent.selectedPaymentIds as string[])].reverse(),
     });
 
     expect(retry.key).toBe(first.key);

@@ -1,12 +1,14 @@
 import {
   buildCredentialExport,
   buildVerificationLinkExport,
+  buildAuditLogExport,
   collectDisclosureWarnings,
   downloadTextFile,
   isSafeExportFilename,
   serializeCredentialJson,
   CREDENTIAL_EXPORT_FILENAME,
   VERIFICATION_LINK_EXPORT_FILENAME,
+  AUDIT_LOG_EXPORT_FILENAME,
 } from "@/lib/credentials/export";
 
 describe("credential export utilities", () => {
@@ -209,10 +211,45 @@ describe("credential export utilities", () => {
     });
   });
 
+  describe("buildAuditLogExport", () => {
+    const entries = [
+      {
+        id: "entry-1",
+        actor: "operator@example.com",
+        action: "PROOF_CREATED",
+        resource: "proof-123",
+        occurredAt: "2026-08-01T00:00:00.000Z",
+        entryHash: "hash-1",
+      },
+    ];
+
+    it("redacts actor identifiers by default", () => {
+      const plan = buildAuditLogExport(entries);
+      const parsed = JSON.parse(plan.body);
+      expect(parsed[0].actor).toBe("[redacted]");
+      expect(plan.warnings).toEqual([]);
+      expect(plan.includedFields).toContain("actor (redacted)");
+    });
+
+    it("discloses actor identifiers and warns when redaction is explicitly disabled", () => {
+      const plan = buildAuditLogExport(entries, { redactActors: false });
+      const parsed = JSON.parse(plan.body);
+      expect(parsed[0].actor).toBe("operator@example.com");
+      expect(plan.warnings).toEqual([{ field: "actor", message: expect.stringContaining("unredacted") }]);
+      expect(plan.includedFields).toContain("actor");
+      expect(plan.includedFields).not.toContain("actor (redacted)");
+    });
+
+    it("uses the audit log export filename", () => {
+      expect(buildAuditLogExport(entries).filename).toBe(AUDIT_LOG_EXPORT_FILENAME);
+    });
+  });
+
   describe("filename security", () => {
-    it("accepts only the two approved export filenames", () => {
+    it("accepts only the approved export filenames", () => {
       expect(isSafeExportFilename(CREDENTIAL_EXPORT_FILENAME)).toBe(true);
       expect(isSafeExportFilename(VERIFICATION_LINK_EXPORT_FILENAME)).toBe(true);
+      expect(isSafeExportFilename(AUDIT_LOG_EXPORT_FILENAME)).toBe(true);
     });
 
     it("rejects arbitrary filenames", () => {

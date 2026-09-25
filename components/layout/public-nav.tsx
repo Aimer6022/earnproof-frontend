@@ -22,7 +22,7 @@ export function PublicNav() {
     (href === "/settings" && pathname.startsWith("/settings"));
 
   return (
-    <header className="relative border-b border-white/10 bg-slate-950">
+    <header className="relative border-b border-white/10 bg-slate-950 print:hidden">
       <div className="flex h-[60px] w-full max-w-[1440px] items-center gap-3 px-3 sm:h-[72px] sm:gap-5 sm:px-5">
         <Link className="flex min-w-0 flex-1 items-center gap-2.5 text-xl font-semibold text-white sm:max-w-[210px]" href="/">
           <Image

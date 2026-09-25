@@ -4,6 +4,7 @@ import { DataPanel, MetricGrid, StatusBadge, pageContainer } from "@/components/
 import { PageHeading } from "@/components/common/page-heading";
 import { PublicShell } from "@/components/layout/public-shell";
 import { StatusCheckSkeleton } from "@/components/common/skeleton/status-check-skeleton";
+import { SupportDiagnosticsExport } from "@/components/common/support-diagnostics-export";
 import { useHealthCheck } from "@/lib/health-check";
 import { defineMessages, formatMessage, formatRelativeTime, formatTime } from "@/lib/i18n";
 
@@ -42,6 +43,9 @@ const messages = defineMessages("status", {
   cachedStatus:
     "Showing the last known status as of {time}. The connection could not be refreshed just now. This may not be the current state.",
   earlierCheck: "an earlier check",
+  supportDiagnosticsTitle: "Support diagnostics",
+  supportDiagnosticsDescription:
+    "Generate a local, redacted diagnostics bundle to attach to a support request.",
 });
 
 type StatusRow = {
@@ -198,6 +202,16 @@ export default function StatusPage() {
               rows={allRows}
               searchPlaceholder={messages.searchPlaceholder}
             />
+
+            <div>
+              <h2 className="text-xl font-semibold text-white">{messages.supportDiagnosticsTitle}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {messages.supportDiagnosticsDescription}
+              </p>
+              <div className="mt-4">
+                <SupportDiagnosticsExport />
+              </div>
+            </div>
           </>
         )}
       </div>

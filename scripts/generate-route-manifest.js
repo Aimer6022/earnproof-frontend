@@ -63,6 +63,12 @@ const ROUTE_CLASSIFICATION = {
   '/settings': ROUTE_TYPES.PRIVATE,
   '/settings/issuers': ROUTE_TYPES.PRIVATE,
   '/settings/organizations': ROUTE_TYPES.PRIVATE,
+  '/settings/activity': ROUTE_TYPES.PRIVATE,
+
+  // Embeddable public verification widget (issue #196) - public but
+  // deliberately non-indexable: it's meant to be embedded on relying-party
+  // sites, not found directly via search.
+  '/embed/v1/verify/[id]': ROUTE_TYPES.PUBLIC_NON_INDEXABLE,
 };
 
 // Helper to check if file exists

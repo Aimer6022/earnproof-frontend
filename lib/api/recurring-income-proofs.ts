@@ -65,13 +65,14 @@ export type IntervalCoverageAnalysis = {
 export async function createRecurringIncomeProof(
   token: string,
   request: CreateRecurringIncomeProofRequest,
-  signal: AbortSignal
+  signal: AbortSignal,
+  idempotencyKey?: string
 ): Promise<RecurringIncomeProof> {
   return retryMutation(async (signal) => {
     return apiClient<RecurringIncomeProof>({
       path: "/proofs/recurring-income",
       method: "POST",
-      headers: bearer(token),
+      headers: idempotencyKey ? { ...bearer(token), "Idempotency-Key": idempotencyKey } : bearer(token),
       body: JSON.stringify(request),
       signal,
     });

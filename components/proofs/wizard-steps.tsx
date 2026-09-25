@@ -1,25 +1,25 @@
 "use client";
 
-import { WIZARD_STEPS, STEP_LABELS, type WizardStep } from "@/lib/validation/recurring-income-proofs";
-
-const STEP_ORDER: WizardStep[] = [
-  WIZARD_STEPS.INTERVAL_CONFIG,
-  WIZARD_STEPS.PERIOD_CONFIG,
-  WIZARD_STEPS.PAYMENT_SELECTION,
-  WIZARD_STEPS.COVERAGE_ANALYSIS,
-  WIZARD_STEPS.CONFIRMATION,
-];
-
-export function WizardSteps({
+/**
+ * Generic multi-step wizard progress nav. Originally hardcoded to
+ * recurring-income's step enum; parameterized over `stepOrder`/`stepLabels`
+ * so the aggregate-earnings and income-range wizards can reuse the same
+ * component instead of each duplicating it.
+ */
+export function WizardSteps<Step extends string>({
+  stepOrder,
+  stepLabels,
   currentStep,
   onStepChange,
   canProceedToStep,
 }: {
-  currentStep: WizardStep;
-  onStepChange: (step: WizardStep) => void;
-  canProceedToStep: (step: WizardStep) => boolean;
+  stepOrder: Step[];
+  stepLabels: Record<Step, string>;
+  currentStep: Step;
+  onStepChange: (step: Step) => void;
+  canProceedToStep: (step: Step) => boolean;
 }) {
-  const currentStepIndex = STEP_ORDER.indexOf(currentStep);
+  const currentStepIndex = stepOrder.indexOf(currentStep);
 
   const getStepStatus = (stepIndex: number): "completed" | "current" | "upcoming" | "disabled" => {
     if (stepIndex < currentStepIndex) {
@@ -58,28 +58,28 @@ export function WizardSteps({
     }
   };
 
-  const canNavigateToStep = (targetStep: WizardStep, targetIndex: number): boolean => {
+  const canNavigateToStep = (targetStep: Step, targetIndex: number): boolean => {
     // Can always go back to completed steps
     if (targetIndex < currentStepIndex) {
       return true;
     }
-    
+
     // Can go forward one step if current step allows it
     if (targetIndex === currentStepIndex + 1 && canProceedToStep(currentStep)) {
       return true;
     }
-    
+
     return false;
   };
 
   return (
     <nav className="rounded-lg border border-white/10 bg-white/[0.04] p-5" aria-label="Progress">
       <ol className="flex items-center justify-between">
-        {STEP_ORDER.map((step, index) => {
+        {stepOrder.map((step, index) => {
           const status = getStepStatus(index);
           const styles = getStepStyles(status);
           const canNavigate = canNavigateToStep(step, index);
-          const isLast = index === STEP_ORDER.length - 1;
+          const isLast = index === stepOrder.length - 1;
 
           return (
             <li key={step} className="flex items-center flex-1">
@@ -105,14 +105,14 @@ export function WizardSteps({
                   mt-2 text-xs font-medium text-center max-w-24
                   ${status === "current" ? "text-white" : status === "completed" ? "text-emerald-200" : "text-slate-400"}
                 `}>
-                  {STEP_LABELS[step]}
+                  {stepLabels[step]}
                 </span>
               </div>
 
               {/* Connector line */}
               {!isLast && (
                 <div className="flex-1 mx-4 h-0.5 bg-slate-600">
-                  <div 
+                  <div
                     className={`h-full transition-all duration-300 ${
                       status === "completed" ? "bg-emerald-600 w-full" : "bg-slate-600 w-0"
                     }`}
@@ -123,13 +123,13 @@ export function WizardSteps({
           );
         })}
       </ol>
-      
+
       <div className="mt-4 flex justify-between">
         <button
           onClick={() => {
             const prevIndex = Math.max(0, currentStepIndex - 1);
             if (prevIndex < currentStepIndex) {
-              onStepChange(STEP_ORDER[prevIndex]);
+              onStepChange(stepOrder[prevIndex]);
             }
           }}
           disabled={currentStepIndex === 0}
@@ -137,18 +137,18 @@ export function WizardSteps({
         >
           Previous
         </button>
-        
+
         <button
           onClick={() => {
-            const nextIndex = Math.min(STEP_ORDER.length - 1, currentStepIndex + 1);
+            const nextIndex = Math.min(stepOrder.length - 1, currentStepIndex + 1);
             if (nextIndex > currentStepIndex && canProceedToStep(currentStep)) {
-              onStepChange(STEP_ORDER[nextIndex]);
+              onStepChange(stepOrder[nextIndex]);
             }
           }}
-          disabled={currentStepIndex === STEP_ORDER.length - 1 || !canProceedToStep(currentStep)}
+          disabled={currentStepIndex === stepOrder.length - 1 || !canProceedToStep(currentStep)}
           className="h-10 rounded-md bg-cyan-300 px-4 text-xs font-semibold text-slate-950 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cyan-200 transition"
         >
-          {currentStepIndex === STEP_ORDER.length - 1 ? "Complete" : "Next"}
+          {currentStepIndex === stepOrder.length - 1 ? "Complete" : "Next"}
         </button>
       </div>
     </nav>

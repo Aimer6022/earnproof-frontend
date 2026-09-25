@@ -191,6 +191,15 @@ describe("the status route under the pseudo-locale", () => {
     jest.doMock("@/components/layout/public-shell", () => ({
       PublicShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     }));
+    // This route's own text/layout is what this suite checks; the export
+    // widget is a separate, already-covered component
+    // (components/common/__tests__/support-diagnostics-export.test.tsx) with
+    // its own hooks (useId, usePathname) that don't interact with
+    // pseudo-localization, so it's mocked out here the same way PublicShell
+    // is above.
+    jest.doMock("@/components/common/support-diagnostics-export", () => ({
+      SupportDiagnosticsExport: () => <div>Support diagnostics export</div>,
+    }));
 
     const { default: StatusPage } = await import("@/app/status/page");
     return render(<StatusPage />);

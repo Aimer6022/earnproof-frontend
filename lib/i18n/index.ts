@@ -5,10 +5,12 @@
 
 export {
   DEFAULT_LOCALE,
+  DEFAULT_TIME_ZONE,
   PSEUDO_LOCALE,
   SUPPORTED_LOCALES,
   isPseudoLocaleEnabled,
   resolveLocale,
+  resolveTimeZone,
   type SupportedLocale,
 } from "./locale";
 
@@ -16,14 +18,27 @@ export {
   formatDate,
   formatDateRange,
   formatDateTime,
+  formatDateTimeWithZone,
   formatList,
   formatNumber,
   formatPlural,
   formatRelativeTime,
   formatTime,
   selectPlural,
+  type DateFormatOptions,
   type PluralForms,
 } from "./format";
+
+export {
+  clearLocalePreference,
+  clearTimeZonePreference,
+  detectBrowserTimeZone,
+  getLocalePreference,
+  getTimeZonePreference,
+  setLocalePreference,
+  setTimeZonePreference,
+  subscribeToPreferenceChanges,
+} from "./preferences";
 
 export {
   defineMessages,

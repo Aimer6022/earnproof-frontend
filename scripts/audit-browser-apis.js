@@ -46,6 +46,8 @@ const CLIENT_ONLY_UTILITY_FILES = new Set([
   'lib/credentials/export.ts',
   'lib/diagnostics/web-vitals-sink.ts',
   'lib/proofs/idempotency.ts',
+  'lib/scanner/media-stream-manager.ts',
+  'lib/scanner/use-scanner-lifecycle.ts',
   'lib/storage/index.ts',
   'lib/telemetry/client-error-reporter.ts',
   'lib/telemetry/correlation.ts',

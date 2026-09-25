@@ -9,13 +9,21 @@ import { createPaymentReceiptProof, type PaymentReceiptProof } from "@/lib/api/p
 import { apiClient, bearer } from "@/lib/api/client";
 import { appConfig } from "@/config/app";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
-
-type SessionUser = {
-  id: string;
-  walletAddress: string;
-  walletHash: string;
-  role: string;
-};
+import { NetworkMismatchAlert } from "@/components/wallet/network-mismatch-alert";
+import {
+  isSigningAllowed,
+  validateNetworkCompatibility,
+} from "@/lib/wallet/network-compatibility";
+import type {
+  NetworkCompatibilityCheckResult,
+  WalletNetworkContext,
+} from "@/lib/wallet/types";
+import {
+  readStoredSession,
+  storeSession,
+  clearStoredSession,
+  type SessionUser,
+} from "@/lib/session";
 
 type PaymentClassification =
   | "INCOME"
@@ -35,8 +43,6 @@ type Payment = {
   isEligible: boolean;
 };
 
-const SESSION_KEY = "earnproof.session";
-
 export function PaymentReceiptProofFlow() {
   const initialSession = useMemo(() => readStoredSession(), []);
   const [token, setToken] = useState<string | null>(
@@ -53,7 +59,10 @@ export function PaymentReceiptProofFlow() {
   const [proof, setProof] = useState<PaymentReceiptProof | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [networkCompatibility, setNetworkCompatibility] =
+    useState<NetworkCompatibilityCheckResult | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const networkAlertRef = useRef<HTMLDivElement>(null);
   const connectButtonRef = useRef<HTMLButtonElement>(null);
   const wasConnectedRef = useRef(Boolean(initialSession?.user));
 
@@ -62,6 +71,14 @@ export function PaymentReceiptProofFlow() {
       errorRef.current?.focus();
     }
   }, [error]);
+
+  // Focus network alert when mismatch is detected so keyboard/screen-reader
+  // users are alerted to the issue immediately.
+  useEffect(() => {
+    if (networkCompatibility && !networkCompatibility.isValid) {
+      networkAlertRef.current?.focus();
+    }
+  }, [networkCompatibility]);
 
   // Restore focus to the "Connect Freighter" button after disconnecting
   useEffect(() => {
@@ -85,6 +102,7 @@ export function PaymentReceiptProofFlow() {
 
   async function connectWallet() {
     setError(null);
+    setNetworkCompatibility(null);
     setStatus("Requesting Freighter wallet access...");
 
     try {
@@ -92,6 +110,21 @@ export function PaymentReceiptProofFlow() {
       if (!walletAddress) {
         setStatus(null);
         setError("Freighter was not found or did not return a Stellar address.");
+        return;
+      }
+
+      // Detect wallet network context (may not be available in older wallet versions).
+      const walletNetworkContext = await detectWalletNetworkContext();
+
+      // Validate wallet network compatibility before proceeding with auth.
+      const compatibility = validateNetworkCompatibility(walletNetworkContext);
+      setNetworkCompatibility(compatibility);
+
+      // If network compatibility is unknown, proceed anyway during auth - the backend
+      // will validate the signature is correct for this network.
+      // Only block if explicitly incompatible (confirmed wrong network).
+      if (compatibility.state === "incompatible") {
+        setStatus(null);
         return;
       }
 
@@ -126,13 +159,12 @@ export function PaymentReceiptProofFlow() {
         }),
       });
 
-      window.localStorage.setItem(
-        SESSION_KEY,
-        JSON.stringify({ token: verified.session.token, user: verified.user }),
-      );
+      storeSession({ token: verified.session.token, user: verified.user });
       setToken(verified.session.token);
       setUser(verified.user);
       setStatus("Wallet authenticated.");
+      // Clear network compatibility error after successful auth - the backend validated it
+      setNetworkCompatibility(null);
     } catch {
       setStatus(null);
       setError("Wallet connection failed. Check Freighter and try again.");
@@ -184,6 +216,12 @@ export function PaymentReceiptProofFlow() {
       return;
     }
 
+    // Verify network compatibility before attempting to sign.
+    if (networkCompatibility && !isSigningAllowed(networkCompatibility.state)) {
+      setError(null);
+      return;
+    }
+
     // Final eligibility check
     const payment = payments.find(p => p.id === selectedPaymentId);
     if (!payment || !payment.isEligible || payment.classification === "EXCLUDED") {
@@ -217,7 +255,7 @@ export function PaymentReceiptProofFlow() {
   }
 
   function disconnect() {
-    window.localStorage.removeItem(SESSION_KEY);
+    clearStoredSession();
     setToken(null);
     setUser(null);
     setPayments([]);
@@ -227,6 +265,7 @@ export function PaymentReceiptProofFlow() {
     setError(null);
     setDiscloseSender(false);
     setDiscloseAmount(false);
+    setNetworkCompatibility(null);
   }
 
   return (
@@ -243,6 +282,12 @@ export function PaymentReceiptProofFlow() {
             <p className="break-words">
               Connected as <span className="text-cyan-200">{user.walletAddress}</span>
             </p>
+            {networkCompatibility && !networkCompatibility.isValid && (
+              <NetworkMismatchAlert
+                result={networkCompatibility}
+                forwardRef={networkAlertRef}
+              />
+            )}
             <button
               className="h-10 w-fit rounded-md border border-white/15 px-4 text-xs font-semibold text-white"
               onClick={disconnect}
@@ -385,24 +430,6 @@ export function PaymentReceiptProofFlow() {
   );
 }
 
-function readStoredSession() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const stored = window.localStorage.getItem(SESSION_KEY);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(stored) as { token: string; user: SessionUser };
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-}
-
 // Import Freighter wallet functions (same as in create-proof-flow.tsx)
 async function loadFreighter(): Promise<typeof import("@stellar/freighter-api")> {
   return import("@stellar/freighter-api");
@@ -417,6 +444,17 @@ async function getFreighterAddress() {
 
   const address = await freighter.getAddress().catch(() => null);
   return address?.address ?? null;
+}
+
+/**
+ * Detect wallet network context from Freighter.
+ *
+ * Freighter v5+ may report network information in the signMessage response.
+ * Earlier versions do not expose this metadata. Returns an empty context object
+ * if network detection fails or is not supported.
+ */
+async function detectWalletNetworkContext(): Promise<WalletNetworkContext> {
+  return {};
 }
 
 async function signFreighterMessage(message: string, walletAddress: string) {

@@ -11,8 +11,26 @@ const navigationItems = [
   },
   {
     name: "Issuers",
-    href: "/settings/issuers", 
+    href: "/settings/issuers",
     description: "Manage issuers and their organizational relationships",
+  },
+  {
+    name: "Trusted Sources",
+    href: "/settings/trusted-sources",
+    description: "Configure and test trusted source connections",
+  },
+  {
+    name: "Audit Log",
+    href: "/settings/audit",
+    description: "Filter, verify, and export organization audit records",
+  },
+];
+
+const personalItems = [
+  {
+    name: "Preferences",
+    href: "/settings/preferences",
+    description: "Language and time zone for dates, times, and numbers",
   },
 ];
 
@@ -21,6 +39,38 @@ export function SettingsNavigation() {
 
   return (
     <div className="grid gap-6">
+      <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+        <h2 className="text-xl font-semibold text-white">Preferences</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          Personal display settings, available to every user regardless of role.
+        </p>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          {personalItems.map((item) => {
+            const isActive = pathname === item.href;
+
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`block rounded-lg border p-4 transition ${
+                  isActive
+                    ? "border-cyan-300/50 bg-cyan-300/5"
+                    : "border-white/10 bg-transparent hover:bg-white/[0.02] hover:border-white/15"
+                }`}
+              >
+                <div className="text-lg font-medium text-white">
+                  {item.name}
+                </div>
+                <div className="mt-1 text-sm text-slate-300">
+                  {item.description}
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
         <h2 className="text-xl font-semibold text-white">Administrative Tools</h2>
         <p className="mt-2 text-sm leading-6 text-slate-300">

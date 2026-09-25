@@ -134,7 +134,11 @@ describe("StatusPage", () => {
     expect(screen.getByText("Database")).toBeInTheDocument();
     expect(screen.getAllByText("Global").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Just now").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    // The loading skeleton's busy status region is gone once data has
+    // loaded (a separate, always-present status region now exists for the
+    // support diagnostics export's screen-reader announcements).
+    expect(screen.queryByText("Checking system status...")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { busy: true })).not.toBeInTheDocument();
   });
 
   it("shows error banner when fetch fails", async () => {

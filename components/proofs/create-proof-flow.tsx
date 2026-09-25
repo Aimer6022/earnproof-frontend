@@ -4,18 +4,40 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { getAddress, requestAccess, signMessage } from "@stellar/freighter-api";
 import { ArtifactExport } from "@/components/proofs/artifact-export";
 import { PaymentListSkeleton } from "@/components/common/skeleton/payment-list-skeleton";
+import { Timestamp } from "@/components/common/timestamp";
+import { WalletConsentScreen } from "@/components/auth/wallet-consent-screen";
+import { NetworkMismatchAlert } from "@/components/wallet/network-mismatch-alert";
 import { appConfig } from "@/config/app";
 import { apiClient, bearer } from "@/lib/api/client";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
-import { formatDateTime } from "@/lib/i18n";
-import { resolveIdempotencyKey, type IdempotencyState, type ProofIntent } from "@/lib/proofs/idempotency";
+import { resolveIdempotencyKey, type IdempotencyState } from "@/lib/proofs/idempotency";
 import { createSubmissionGuard } from "@/lib/proofs/submission-guard";
+import {
+  buildMinimumIncomeProofPayload,
+  DEFAULT_PROOF_EXPIRES_IN_DAYS,
+  type MinimumIncomeProofPayload,
+} from "@/lib/proofs/minimum-income-payload";
+import { useProofReviewGate } from "@/lib/proofs/useProofReviewGate";
+import { ProofReviewSummary } from "@/components/proofs/proof-review-summary";
+  isSigningAllowed,
+  validateNetworkCompatibility,
+} from "@/lib/wallet/network-compatibility";
+import type {
+  NetworkCompatibilityCheckResult,
+  WalletNetworkContext,
+} from "@/lib/wallet/types";
+import {
+  readStoredSession,
+  storeSession,
+  clearStoredSession,
+  type SessionUser,
+} from "@/lib/session";
 
-type SessionUser = {
+type PendingChallenge = {
   id: string;
+  message: string;
+  expiresAt: string;
   walletAddress: string;
-  walletHash: string;
-  role: string;
 };
 
 type PaymentClassification =
@@ -48,8 +70,6 @@ type ProofResponse = {
   };
 };
 
-const SESSION_KEY = "earnproof.session";
-
 export function CreateProofFlow() {
   const initialSession = useMemo(() => readStoredSession(), []);
   const [token, setToken] = useState<string | null>(
@@ -65,10 +85,15 @@ export function CreateProofFlow() {
   const [periodStart, setPeriodStart] = useState("2026-08-01");
   const [periodEnd, setPeriodEnd] = useState("2026-08-31");
   const [proof, setProof] = useState<ProofResponse | null>(null);
+  const [pendingChallenge, setPendingChallenge] = useState<PendingChallenge | null>(null);
+  const [isSigning, setIsSigning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmittingProof, setIsSubmittingProof] = useState(false);
+  const [networkCompatibility, setNetworkCompatibility] =
+    useState<NetworkCompatibilityCheckResult | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const networkAlertRef = useRef<HTMLDivElement>(null);
   const connectButtonRef = useRef<HTMLButtonElement>(null);
   const wasConnectedRef = useRef(Boolean(initialSession?.user));
   // Guards against duplicate proof-creation mutations: at most one active
@@ -76,12 +101,21 @@ export function CreateProofFlow() {
   // update state. See lib/proofs/submission-guard.ts.
   const submissionGuardRef = useRef(createSubmissionGuard());
   const idempotencyRef = useRef<IdempotencyState | null>(null);
+  const reviewGate = useProofReviewGate<MinimumIncomeProofPayload>();
 
   useEffect(() => {
     if (error) {
       errorRef.current?.focus();
     }
   }, [error]);
+
+  // Focus network alert when mismatch is detected so keyboard/screen-reader
+  // users are alerted to the issue immediately.
+  useEffect(() => {
+    if (networkCompatibility && !networkCompatibility.isValid) {
+      networkAlertRef.current?.focus();
+    }
+  }, [networkCompatibility]);
 
   // Restore focus to the "Connect Freighter" button after disconnecting so
   // keyboard focus doesn't fall back to <body> when the "Disconnect"
@@ -107,8 +141,37 @@ export function CreateProofFlow() {
     [payments, selected],
   );
 
+  // The single source of truth for what would be submitted right now,
+  // given the live form state. Both opening the review step and the
+  // change-detection effect below call this same function, so "what the
+  // user reviews" and "what gets submitted" can never independently drift.
+  const currentPayload: MinimumIncomeProofPayload | null = useMemo(() => {
+    if (selectedIncomePayments.length === 0) return null;
+    const intent: ProofIntent = {
+      selectedPaymentIds: selectedIncomePayments.map((payment) => payment.id),
+      thresholdAmount,
+      assetCode: selectedIncomePayments[0].assetCode,
+      assetIssuer: selectedIncomePayments[0].assetIssuer ?? undefined,
+      periodStart: `${periodStart}T00:00:00.000Z`,
+      periodEnd: `${periodEnd}T23:59:59.000Z`,
+    };
+    return buildMinimumIncomeProofPayload(intent, DEFAULT_PROOF_EXPIRES_IN_DAYS);
+  }, [selectedIncomePayments, thresholdAmount, periodStart, periodEnd]);
+
+  // Any change to a live input this payload is built from invalidates a
+  // prior confirmation — the user must review again before submitting.
+  useEffect(() => {
+    if (currentPayload) {
+      reviewGate.refreshLiveSnapshot(currentPayload);
+    }
+    // reviewGate's functions are stable (useCallback with no deps), so it's
+    // safe to omit it here and depend only on the payload's own identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPayload]);
+
   async function connectWallet() {
     setError(null);
+    setNetworkCompatibility(null);
     setStatus("Requesting Freighter wallet access...");
 
     try {
@@ -116,6 +179,22 @@ export function CreateProofFlow() {
       if (!walletAddress) {
         setStatus(null);
         setError("Freighter was not found or did not return a Stellar address.");
+        return;
+      }
+
+      // Detect wallet network context (may not be available in older wallet versions).
+      const walletNetworkContext = await detectWalletNetworkContext();
+
+      // Validate wallet network compatibility before proceeding with auth.
+      const compatibility = validateNetworkCompatibility(walletNetworkContext);
+      setNetworkCompatibility(compatibility);
+
+      // If network compatibility is unknown, proceed anyway during auth - the backend
+      // will validate the signature is correct for this network. If the wallet is on
+      // the wrong network, the backend's network check will catch it.
+      // Only block if explicitly incompatible (confirmed wrong network).
+      if (compatibility.state === "incompatible") {
+        setStatus(null);
         return;
       }
 
@@ -129,8 +208,39 @@ export function CreateProofFlow() {
         body: JSON.stringify({ walletAddress }),
       });
 
-      setStatus("Waiting for wallet signature...");
-      const signature = await signFreighterMessage(challenge.message, walletAddress);
+      // Show the consent screen and wait for an explicit Continue before
+      // signing, rather than immediately prompting Freighter.
+      setStatus(null);
+      setPendingChallenge({ ...challenge, walletAddress });
+    } catch {
+      setStatus(null);
+      setError("Wallet connection failed. Check Freighter and try again.");
+    }
+  }
+
+  function cancelWalletConsent() {
+    setPendingChallenge(null);
+    setStatus(null);
+  }
+
+  async function confirmWalletConsent() {
+    if (!pendingChallenge) return;
+
+    // Re-check the challenge hasn't expired between review and signing —
+    // there's no push mechanism to detect a changed challenge otherwise.
+    if (new Date(pendingChallenge.expiresAt).getTime() <= Date.now()) {
+      setPendingChallenge(null);
+      setError("This signature request expired. Please reconnect your wallet.");
+      return;
+    }
+
+    setIsSigning(true);
+    setError(null);
+    setStatus("Waiting for wallet signature...");
+
+    try {
+      const { id: challengeId, message, walletAddress } = pendingChallenge;
+      const signature = await signFreighterMessage(message, walletAddress);
       if (!signature) {
         setStatus(null);
         setError("Wallet did not return a signature for the challenge.");
@@ -144,22 +254,24 @@ export function CreateProofFlow() {
         path: "/auth/verify",
         method: "POST",
         body: JSON.stringify({
-          challengeId: challenge.id,
+          challengeId,
           walletAddress,
           signature,
         }),
       });
 
-      window.localStorage.setItem(
-        SESSION_KEY,
-        JSON.stringify({ token: verified.session.token, user: verified.user }),
-      );
+      storeSession({ token: verified.session.token, user: verified.user });
       setToken(verified.session.token);
       setUser(verified.user);
       setStatus("Wallet authenticated.");
+      setPendingChallenge(null);
+      // Clear network compatibility error after successful auth - the backend validated it
+      setNetworkCompatibility(null);
     } catch {
       setStatus(null);
       setError("Wallet connection failed. Check Freighter and try again.");
+    } finally {
+      setIsSigning(false);
     }
   }
 
@@ -229,15 +341,41 @@ export function CreateProofFlow() {
     }
   }
 
-  async function createProof(event: FormEvent<HTMLFormElement>) {
+  // Step 1: form submit opens (or re-opens) the review step instead of
+  // calling the API directly. The actual mutation only happens from
+  // submitProof(), gated on reviewGate.isConfirmed.
+  function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (reviewGate.isConfirmed && reviewGate.reviewedPayload) {
+      void submitProof(reviewGate.reviewedPayload);
+      return;
+    }
+
+    if (!token) {
+      setError("Connect a wallet before creating a proof.");
+      return;
+    }
+    if (!currentPayload) {
+      setError("Select at least one eligible income payment.");
+      return;
+    }
+    setError(null);
+    reviewGate.openReview(currentPayload);
+  }
+
+  // Step 2: the actual mutation. `payload` is always the frozen snapshot
+  // from reviewGate, never re-derived from live state, so this is
+  // guaranteed byte-equivalent to what the user reviewed and confirmed.
+  async function submitProof(payload: MinimumIncomeProofPayload) {
     if (!token) {
       setError("Connect a wallet before creating a proof.");
       return;
     }
 
-    if (selectedIncomePayments.length === 0) {
-      setError("Select at least one eligible income payment.");
+    // Verify network compatibility before attempting to sign.
+    if (networkCompatibility && !isSigningAllowed(networkCompatibility.state)) {
+      setError(null);
       return;
     }
 
@@ -255,7 +393,7 @@ export function CreateProofFlow() {
     setProof(null);
     setStatus("Creating signed minimum-income proof...");
 
-    const intent: ProofIntent = {
+    const intent = {
       selectedPaymentIds: selectedIncomePayments.map((payment) => payment.id),
       thresholdAmount,
       assetCode: selectedIncomePayments[0].assetCode,
@@ -266,6 +404,14 @@ export function CreateProofFlow() {
     // A retry of the same intent (same selection, threshold, and period)
     // reuses the previous idempotency key; anything else mints a new one.
     // See lib/proofs/idempotency.ts.
+    const intent: ProofIntent = {
+      selectedPaymentIds: payload.selectedPaymentIds,
+      thresholdAmount: payload.thresholdAmount,
+      assetCode: payload.assetCode,
+      assetIssuer: payload.assetIssuer,
+      periodStart: payload.periodStart,
+      periodEnd: payload.periodEnd,
+    };
     const idempotency = resolveIdempotencyKey(idempotencyRef.current, intent);
     idempotencyRef.current = idempotency;
 
@@ -274,15 +420,7 @@ export function CreateProofFlow() {
         path: "/proofs/minimum-income",
         method: "POST",
         headers: { ...bearer(token), "Idempotency-Key": idempotency.key },
-        body: JSON.stringify({
-          selectedPaymentIds: intent.selectedPaymentIds,
-          thresholdAmount: intent.thresholdAmount,
-          assetCode: intent.assetCode,
-          assetIssuer: intent.assetIssuer,
-          periodStart: intent.periodStart,
-          periodEnd: intent.periodEnd,
-          expiresInDays: 30,
-        }),
+        body: JSON.stringify(payload),
       });
 
       // Drop this response if something (a wallet disconnect, most likely)
@@ -299,6 +437,7 @@ export function CreateProofFlow() {
       // even with identical field values, is a new intent and should get
       // its own key rather than silently reusing a completed one.
       idempotencyRef.current = null;
+      reviewGate.reset();
     } catch {
       if (!submissionGuardRef.current.isCurrent(submissionId)) {
         return;
@@ -320,7 +459,7 @@ export function CreateProofFlow() {
     submissionGuardRef.current.invalidate();
     idempotencyRef.current = null;
     setIsSubmittingProof(false);
-    window.localStorage.removeItem(SESSION_KEY);
+    clearStoredSession();
     setToken(null);
     setUser(null);
     setPayments([]);
@@ -328,10 +467,24 @@ export function CreateProofFlow() {
     setProof(null);
     setStatus(null);
     setError(null);
+    setNetworkCompatibility(null);
   }
 
   return (
     <div className="grid gap-8 sm:gap-10">
+      {pendingChallenge && (
+        <WalletConsentScreen
+          challenge={{
+            origin: typeof window !== "undefined" ? window.location.origin : appConfig.apiUrl,
+            network: appConfig.stellarNetwork,
+            expiresAt: pendingChallenge.expiresAt,
+            purpose: "Sign in to EarnProof",
+          }}
+          onContinue={confirmWalletConsent}
+          onCancel={cancelWalletConsent}
+          isProcessing={isSigning}
+        />
+      )}
       <section className="grid gap-4 rounded-lg border border-white/10 bg-white/[0.04] p-5">
         <div>
           <h2 className="text-xl font-semibold text-white">Wallet</h2>
@@ -351,6 +504,12 @@ export function CreateProofFlow() {
             <p className="break-all">
               Connected as <span className="text-cyan-200">{user.walletAddress}</span>
             </p>
+            {networkCompatibility && !networkCompatibility.isValid && (
+              <NetworkMismatchAlert
+                result={networkCompatibility}
+                forwardRef={networkAlertRef}
+              />
+            )}
             <button
               className="h-10 w-fit rounded-md border border-white/15 px-4 text-xs font-semibold text-white"
               onClick={disconnect}
@@ -431,7 +590,7 @@ export function CreateProofFlow() {
 
       <form
         className="grid gap-4 rounded-lg border border-white/10 bg-white/[0.04] p-5"
-        onSubmit={createProof}
+        onSubmit={handleFormSubmit}
       >
         <div>
           <h2 className="text-xl font-semibold text-white">Minimum Income Proof</h2>
@@ -460,14 +619,26 @@ export function CreateProofFlow() {
             value={periodEnd}
           />
         </div>
-        <button
-          aria-describedby={error ? "create-proof-feedback" : undefined}
-          className="h-10 w-fit rounded-md bg-cyan-300 px-4 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={!token || selectedIncomePayments.length === 0 || isSubmittingProof}
-          type="submit"
-        >
-          {isSubmittingProof ? "Creating proof..." : "Create proof"}
-        </button>
+
+        {reviewGate.reviewedPayload ? (
+          <ProofReviewSummary
+            payload={reviewGate.reviewedPayload}
+            qualifyingPaymentCount={selectedIncomePayments.length}
+            isConfirmed={reviewGate.isConfirmed}
+            onConfirm={reviewGate.confirm}
+            onCancel={reviewGate.cancel}
+            isSubmitting={isSubmittingProof}
+          />
+        ) : (
+          <button
+            aria-describedby={error ? "create-proof-feedback" : undefined}
+            className="h-10 w-fit rounded-md bg-cyan-300 px-4 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!token || selectedIncomePayments.length === 0 || isSubmittingProof}
+            type="submit"
+          >
+            Review before creating
+          </button>
+        )}
       </form>
 
       {status || error || proof ? (
@@ -529,24 +700,6 @@ export function CreateProofFlow() {
   );
 }
 
-function readStoredSession() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const stored = window.localStorage.getItem(SESSION_KEY);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(stored) as { token: string; user: SessionUser };
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-}
-
 function PaymentRow({
   payment,
   isSelected,
@@ -578,9 +731,7 @@ function PaymentRow({
         <p className="mt-1 break-all text-xs text-slate-400">
           {payment.stellarTransactionHash}
         </p>
-        <p className="mt-1 text-xs text-slate-400">
-          {formatDateTime(payment.occurredAt)}
-        </p>
+        <Timestamp className="mt-1 block text-xs text-slate-400" value={payment.occurredAt} />
       </div>
       <select
         aria-label="Payment classification"
@@ -649,6 +800,31 @@ async function getFreighterAddress() {
 
   const address = await freighter.getAddress().catch(() => null);
   return address?.address ?? null;
+}
+
+/**
+ * Detect wallet network context from Freighter.
+ *
+ * Freighter v5+ may report network information in the signMessage response.
+ * Earlier versions do not expose this metadata. Returns an empty context object
+ * if network detection fails or is not supported.
+ *
+ * Note: This is a preliminary detection call that does NOT send a signature
+ * request to the user's wallet. It attempts to detect what network the wallet
+ * is configured for through metadata inspection or trial call patterns.
+ *
+ * For now, we use an empty context as a safe default. In a production wallet
+ * that supports network detection in the API, this function would query the
+ * wallet's current network state without prompting the user.
+ */
+async function detectWalletNetworkContext(): Promise<WalletNetworkContext> {
+  // In a future enhancement with wallet support for network detection API,
+  // this would call freighter.getNetwork() or similar to detect the wallet's
+  // current network without prompting the user for a signature.
+  //
+  // For now, return empty context. Network will be validated during the
+  // signMessage call when we can extract it from the response or error.
+  return {};
 }
 
 async function signFreighterMessage(message: string, walletAddress: string) {

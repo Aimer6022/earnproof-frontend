@@ -4,77 +4,85 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CreateApiKeyForm } from "./create-api-key-form";
 import { ApiKeyList } from "./api-key-list";
 import { OneTimeSecret } from "./one-time-secret";
-import { getApiKeys, type CreateApiKeyResponse } from "@/lib/api/keys";
+import { getApiKeysPaginated, type CreateApiKeyResponse } from "@/lib/api/keys";
+import { usePagination } from "@/lib/hooks/use-pagination";
 import type { ApiKey } from "@/lib/api/generated/v1";
-
-const SESSION_KEY = "earnproof.session";
-
-type SessionData = {
-  token: string;
-  user: {
-    id: string;
-    role: string;
-  };
-};
-
-function readStoredSession(): SessionData | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const stored = window.localStorage.getItem(SESSION_KEY);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(stored) as SessionData;
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-}
+import { readStoredSession, type Session as SessionData } from "@/lib/session";
 
 export function ApiKeyManagement() {
   const [session] = useState<SessionData | null>(() => readStoredSession());
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdKey, setCreatedKey] = useState<CreateApiKeyResponse | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const requestCounterRef = useRef(0);
   const sessionToken = session?.token ?? null;
 
-  const loadApiKeys = useCallback(async () => {
-    if (!sessionToken) {
-      return;
-    }
+  const pagination = usePagination({ pageSize: 10 });
 
-    // Cancel any pending request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const keys = await getApiKeys(sessionToken, controller.signal);
-      if (!controller.signal.aborted) {
-        setApiKeys(keys);
+  const loadApiKeys = useCallback(
+    async (navigateToNext: boolean = false, navigateToPrev: boolean = false) => {
+      if (!sessionToken) {
+        return;
       }
-    } catch {
-      if (!controller.signal.aborted) {
-        setError("Failed to load API keys. Please try again.");
+
+      // Cancel any pending request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
-    } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      requestCounterRef.current += 1;
+      const requestId = `req-${requestCounterRef.current}`;
+
+      pagination.setLoading(true);
+      setError(null);
+
+      try {
+        let nextCursor = pagination.currentPage.nextCursor ?? undefined;
+        let previousCursor = pagination.currentPage.previousCursor ?? undefined;
+
+        // Handle navigation requests
+        if (navigateToNext && pagination.currentPage.nextCursor) {
+          previousCursor = pagination.currentPage.nextCursor;
+          nextCursor = undefined;
+        } else if (navigateToPrev && pagination.currentPage.previousCursor) {
+          nextCursor = pagination.currentPage.previousCursor;
+          previousCursor = undefined;
+        }
+
+        const response = await getApiKeysPaginated(
+          sessionToken,
+          pagination.pageSize,
+          nextCursor,
+          previousCursor,
+          controller.signal
+        );
+
+        if (!controller.signal.aborted) {
+          setApiKeys(response.items);
+          pagination.setPageState(
+            {
+              nextCursor: response.nextCursor,
+              previousCursor: response.previousCursor,
+            },
+            requestId
+          );
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setError("Failed to load API keys. Please try again.");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          pagination.setLoading(false);
+          pagination.clearUserInitiated();
+        }
       }
-    }
-  }, [sessionToken]);
+    },
+    [sessionToken, pagination]
+  );
 
   useEffect(() => {
     let active = true;
@@ -84,7 +92,7 @@ export function ApiKeyManagement() {
         void loadApiKeys();
       }
     });
-    
+
     // Cleanup on unmount
     return () => {
       active = false;
@@ -112,6 +120,16 @@ export function ApiKeyManagement() {
   const handleSecretDismissed = useCallback(() => {
     setCreatedKey(null);
   }, []);
+
+  const handlePreviousPage = useCallback(() => {
+    pagination.goToPreviousPage();
+    void loadApiKeys(false, true);
+  }, [pagination, loadApiKeys]);
+
+  const handleNextPage = useCallback(() => {
+    pagination.goToNextPage();
+    void loadApiKeys(true, false);
+  }, [pagination, loadApiKeys]);
 
   // Check if user has developer role
   const isDeveloper = session?.user.role === "DEVELOPER" || session?.user.role === "ADMIN";
@@ -169,11 +187,11 @@ export function ApiKeyManagement() {
           </div>
           <button
             className="h-10 rounded-md border border-white/15 px-4 text-xs font-semibold text-white disabled:opacity-50"
-            disabled={loading}
-            onClick={loadApiKeys}
+            disabled={pagination.isLoading}
+            onClick={() => loadApiKeys()}
             type="button"
           >
-            {loading ? "Loading..." : "Refresh"}
+            {pagination.isLoading ? "Loading..." : "Refresh"}
           </button>
         </div>
 
@@ -187,8 +205,15 @@ export function ApiKeyManagement() {
 
         <ApiKeyList
           apiKeys={apiKeys}
-          loading={loading}
+          loading={pagination.isLoading}
           token={session.token}
+          paginationState={{
+            ...pagination.currentPage,
+            isLoading: pagination.isLoading,
+          }}
+          onPreviousPage={handlePreviousPage}
+          onNextPage={handleNextPage}
+          focusResults={pagination.wasUserInitiated}
           onKeyUpdated={handleKeyUpdated}
           onKeyRevoked={handleKeyRevoked}
         />

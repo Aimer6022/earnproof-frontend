@@ -12,14 +12,24 @@ import { createRecurringIncomeProof, analyzeIntervalCoverage, type RecurringInco
 import { apiClient, bearer } from "@/lib/api/client";
 import { appConfig } from "@/config/app";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
-import { WIZARD_STEPS, DEFAULT_VALUES, type WizardStep } from "@/lib/validation/recurring-income-proofs";
-
-type SessionUser = {
-  id: string;
-  walletAddress: string;
-  walletHash: string;
-  role: string;
-};
+import { WIZARD_STEPS, STEP_ORDER, STEP_LABELS, DEFAULT_VALUES, type WizardStep } from "@/lib/validation/recurring-income-proofs";
+import { NetworkMismatchAlert } from "@/components/wallet/network-mismatch-alert";
+import {
+  isSigningAllowed,
+  validateNetworkCompatibility,
+} from "@/lib/wallet/network-compatibility";
+import type {
+  NetworkCompatibilityCheckResult,
+  WalletNetworkContext,
+} from "@/lib/wallet/types";
+import {
+  readStoredSession,
+  storeSession,
+  clearStoredSession,
+  type SessionUser,
+} from "@/lib/session";
+import { resolveIdempotencyKey, type IdempotencyState, type ProofIntent } from "@/lib/proofs/idempotency";
+import { createSubmissionGuard } from "@/lib/proofs/submission-guard";
 
 type PaymentClassification =
   | "INCOME"
@@ -38,8 +48,6 @@ type Payment = {
   classification: PaymentClassification;
   isEligible: boolean;
 };
-
-const SESSION_KEY = "earnproof.session";
 
 export function RecurringIncomeProofWizard() {
   const initialSession = useMemo(() => readStoredSession(), []);
@@ -66,15 +74,31 @@ export function RecurringIncomeProofWizard() {
   const [proof, setProof] = useState<RecurringIncomeProof | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [networkCompatibility, setNetworkCompatibility] =
+    useState<NetworkCompatibilityCheckResult | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const networkAlertRef = useRef<HTMLDivElement>(null);
   const connectButtonRef = useRef<HTMLButtonElement>(null);
   const wasConnectedRef = useRef(Boolean(initialSession?.user));
+  // Guards against duplicate proof-creation mutations: at most one active
+  // submission, and only the response belonging to that submission may
+  // update state. See lib/proofs/submission-guard.ts.
+  const submissionGuardRef = useRef(createSubmissionGuard());
+  const idempotencyRef = useRef<IdempotencyState | null>(null);
 
   useEffect(() => {
     if (error) {
       errorRef.current?.focus();
     }
   }, [error]);
+
+  // Focus network alert when mismatch is detected so keyboard/screen-reader
+  // users are alerted to the issue immediately.
+  useEffect(() => {
+    if (networkCompatibility && !networkCompatibility.isValid) {
+      networkAlertRef.current?.focus();
+    }
+  }, [networkCompatibility]);
 
   // Restore focus to the "Connect Freighter" button after disconnecting
   useEffect(() => {
@@ -110,6 +134,7 @@ export function RecurringIncomeProofWizard() {
 
   async function connectWallet() {
     setError(null);
+    setNetworkCompatibility(null);
     setStatus("Requesting Freighter wallet access...");
 
     try {
@@ -117,6 +142,21 @@ export function RecurringIncomeProofWizard() {
       if (!walletAddress) {
         setStatus(null);
         setError("Freighter was not found or did not return a Stellar address.");
+        return;
+      }
+
+      // Detect wallet network context (may not be available in older wallet versions).
+      const walletNetworkContext = await detectWalletNetworkContext();
+
+      // Validate wallet network compatibility before proceeding with auth.
+      const compatibility = validateNetworkCompatibility(walletNetworkContext);
+      setNetworkCompatibility(compatibility);
+
+      // If network compatibility is unknown, proceed anyway during auth - the backend
+      // will validate the signature is correct for this network.
+      // Only block if explicitly incompatible (confirmed wrong network).
+      if (compatibility.state === "incompatible") {
+        setStatus(null);
         return;
       }
 
@@ -151,13 +191,12 @@ export function RecurringIncomeProofWizard() {
         }),
       });
 
-      window.localStorage.setItem(
-        SESSION_KEY,
-        JSON.stringify({ token: verified.session.token, user: verified.user }),
-      );
+      storeSession({ token: verified.session.token, user: verified.user });
       setToken(verified.session.token);
       setUser(verified.user);
       setStatus("Wallet authenticated.");
+      // Clear network compatibility error after successful auth - the backend validated it
+      setNetworkCompatibility(null);
     } catch {
       setStatus(null);
       setError("Wallet connection failed. Check Freighter and try again.");
@@ -234,9 +273,38 @@ export function RecurringIncomeProofWizard() {
       return;
     }
 
+    // Verify network compatibility before attempting to sign.
+    if (networkCompatibility && !isSigningAllowed(networkCompatibility.state)) {
+      setError(null);
+      return;
+    }
+
+    // Reject a re-entrant call (a second click before the button's disabled
+    // state has re-rendered) instead of starting a second mutation. Only
+    // one submission may be active for this wizard at a time.
+    const submissionId = submissionGuardRef.current.begin();
+    if (submissionId === null) {
+      return;
+    }
+
     setError(null);
     setProof(null);
     setStatus("Creating recurring income proof...");
+
+    const intent: ProofIntent = {
+      selectedPaymentIds,
+      intervalUnit,
+      intervalCount,
+      periodStart: `${periodStart}T00:00:00.000Z`,
+      periodEnd: `${periodEnd}T23:59:59.000Z`,
+      assetCode: selectedAsset.code,
+      assetIssuer: selectedAsset.issuer || undefined,
+    };
+    // A retry of the same intent (same selection, interval, period, and
+    // asset) reuses the previous idempotency key; anything else mints a new
+    // one. See lib/proofs/idempotency.ts.
+    const idempotency = resolveIdempotencyKey(idempotencyRef.current, intent);
+    idempotencyRef.current = idempotency;
 
     try {
       const controller = new AbortController();
@@ -249,18 +317,39 @@ export function RecurringIncomeProofWizard() {
         assetCode: selectedAsset.code,
         assetIssuer: selectedAsset.issuer || undefined,
         expiresInDays,
-      }, controller.signal);
+      }, controller.signal, idempotency.key);
+
+      // Drop this response if something (a wallet disconnect, most likely)
+      // invalidated this submission while the request was in flight.
+      if (!submissionGuardRef.current.isCurrent(submissionId)) {
+        return;
+      }
 
       setProof(created);
       setStatus("Recurring income proof created.");
+      // The intent this key covered has now succeeded; a future click,
+      // even with identical field values, is a new intent and should get
+      // its own key rather than silently reusing a completed one.
+      idempotencyRef.current = null;
     } catch {
+      if (!submissionGuardRef.current.isCurrent(submissionId)) {
+        return;
+      }
       setStatus(null);
       setError("Proof creation failed. Please verify your configuration and try again.");
+    } finally {
+      submissionGuardRef.current.end(submissionId);
     }
   }
 
   function disconnect() {
-    window.localStorage.removeItem(SESSION_KEY);
+    // Any proof-creation request still in flight belongs to a session that
+    // no longer exists once the wallet is disconnected; invalidate it so
+    // its eventual response can't resurrect proof/error state, and so a
+    // fresh submit isn't stuck waiting on a request that may never resolve.
+    submissionGuardRef.current.invalidate();
+    idempotencyRef.current = null;
+    clearStoredSession();
     setToken(null);
     setUser(null);
     setPayments([]);
@@ -270,6 +359,7 @@ export function RecurringIncomeProofWizard() {
     setProof(null);
     setStatus(null);
     setError(null);
+    setNetworkCompatibility(null);
     setCurrentStep(WIZARD_STEPS.INTERVAL_CONFIG);
   }
 
@@ -401,10 +491,18 @@ export function RecurringIncomeProofWizard() {
               Disconnect
             </button>
           </div>
+          {networkCompatibility && !networkCompatibility.isValid && (
+            <NetworkMismatchAlert
+              result={networkCompatibility}
+              forwardRef={networkAlertRef}
+            />
+          )}
         </section>
       )}
 
-      <WizardSteps 
+      <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={currentStep}
         onStepChange={setCurrentStep}
         canProceedToStep={canProceedToNextStep}
@@ -469,24 +567,6 @@ export function RecurringIncomeProofWizard() {
   );
 }
 
-function readStoredSession() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const stored = window.localStorage.getItem(SESSION_KEY);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(stored) as { token: string; user: SessionUser };
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-}
-
 // Import Freighter wallet functions (same as in other proof flows)
 async function loadFreighter(): Promise<typeof import("@stellar/freighter-api")> {
   return import("@stellar/freighter-api");
@@ -521,6 +601,17 @@ async function signFreighterMessage(message: string, walletAddress: string) {
   }
 
   return bytesToBase64(response.signedMessage);
+}
+
+/**
+ * Detect wallet network context from Freighter.
+ *
+ * Freighter v5+ may report network information in the signMessage response.
+ * Earlier versions do not expose this metadata. Returns an empty context object
+ * if network detection fails or is not supported.
+ */
+async function detectWalletNetworkContext(): Promise<WalletNetworkContext> {
+  return {};
 }
 
 function bytesToBase64(value: Uint8Array) {

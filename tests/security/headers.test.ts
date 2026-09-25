@@ -119,6 +119,75 @@ describe("browser security policy", () => {
   });
 });
 
+describe("embeddable verification widget CSP carve-out (issue #196)", () => {
+  it("keeps frame-ancestors 'none' and X-Frame-Options: DENY when allowEmbedding is not passed", () => {
+    const policy = buildSecurityPolicy({ env: localEnv, nonce: "test-nonce" });
+
+    expect(policy.csp).toContain("frame-ancestors 'none'");
+    expect(policy.headers.find((header) => header.key === "X-Frame-Options")?.value).toBe(
+      "DENY",
+    );
+  });
+
+  it("keeps frame-ancestors 'none' and X-Frame-Options: DENY when allowEmbedding is explicitly false", () => {
+    const policy = buildSecurityPolicy({
+      env: localEnv,
+      nonce: "test-nonce",
+      allowEmbedding: false,
+    });
+
+    expect(policy.csp).toContain("frame-ancestors 'none'");
+    expect(policy.headers.find((header) => header.key === "X-Frame-Options")?.value).toBe(
+      "DENY",
+    );
+  });
+
+  it("only widens frame-ancestors and drops X-Frame-Options when allowEmbedding is true", () => {
+    const strictPolicy = buildSecurityPolicy({ env: localEnv, nonce: "test-nonce" });
+    const embedPolicy = buildSecurityPolicy({
+      env: localEnv,
+      nonce: "test-nonce",
+      allowEmbedding: true,
+    });
+
+    expect(embedPolicy.csp).toContain("frame-ancestors *");
+    expect(embedPolicy.csp).not.toContain("frame-ancestors 'none'");
+    expect(embedPolicy.headers.some((header) => header.key === "X-Frame-Options")).toBe(false);
+
+    // Every other directive/header must be byte-for-byte identical to the
+    // strict policy — this option is a framing-only carve-out, not a
+    // general "looser CSP for embeds" switch.
+    const stripFrameAncestors = (csp: string) =>
+      csp
+        .split(";")
+        .map((directive) => directive.trim())
+        .filter((directive) => !directive.startsWith("frame-ancestors "))
+        .join(";");
+    expect(stripFrameAncestors(embedPolicy.csp)).toBe(stripFrameAncestors(strictPolicy.csp));
+
+    const nonFrameHeaders = (policy: typeof strictPolicy) =>
+      policy.headers.filter((header) => header.key !== "X-Frame-Options" && header.key !== "Content-Security-Policy");
+    expect(nonFrameHeaders(embedPolicy)).toEqual(nonFrameHeaders(strictPolicy));
+
+    expect(embedPolicy.scriptSrc).toEqual(strictPolicy.scriptSrc);
+    expect(embedPolicy.connectSrc).toEqual(strictPolicy.connectSrc);
+  });
+
+  it("still blocks unapproved connect/frame hosts and inline script under the embed policy", () => {
+    const embedPolicy = buildSecurityPolicy({
+      env: localEnv,
+      nonce: "test-nonce",
+      allowEmbedding: true,
+    });
+
+    expect(embedPolicy.csp).not.toContain(fixtures.unapprovedConnectOrigin);
+    expect(embedPolicy.csp).not.toContain(fixtures.unapprovedInlineScript);
+    expect(cspDirective(embedPolicy.csp, "script-src")).not.toMatch(/unsafe-inline/);
+    expect(cspDirective(embedPolicy.csp, "script-src")).not.toMatch(/\*/);
+    expect(embedPolicy.csp).toContain("object-src 'none'");
+  });
+});
+
 describe("deployment origin requirements", () => {
   it("uses local defaults when preview/production origins are not required", () => {
     expect(resolveDeploymentProfile({})).toBe("local");

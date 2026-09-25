@@ -92,7 +92,7 @@ describe("ArtifactExport", () => {
     ).toBeInTheDocument();
   });
 
-  it("downloads the supplied export plan", () => {
+  it("downloads the supplied export plan after verifying its integrity", async () => {
     render(
       <ArtifactExport
         plan={plan}
@@ -106,12 +106,12 @@ describe("ArtifactExport", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
 
-    expect(mockedDownload).toHaveBeenCalledWith(plan);
+    await waitFor(() => expect(mockedDownload).toHaveBeenCalledWith(plan));
 
-    expect(screen.getAllByText("Download started.")).toHaveLength(2);
+    expect(screen.getAllByText(/Download started\./)).toHaveLength(2);
   });
 
-  it("handles download failures without exposing credential contents", () => {
+  it("handles download failures without exposing credential contents", async () => {
     mockedDownload.mockImplementation(() => {
       throw new Error("download failed");
     });
@@ -133,10 +133,10 @@ describe("ArtifactExport", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
 
-    expect(
-      screen.getByRole("alert"),
-    ).toHaveTextContent(
-      "Download failed. Check browser permissions and try again.",
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Download failed. Check browser permissions and try again.",
+      ),
     );
 
     expect(consoleError).not.toHaveBeenCalledWith(
