@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDateTime } from "@/lib/i18n";
+import { Timestamp } from "@/components/common/timestamp";
 
 type Payment = {
   id: string;
@@ -50,7 +50,9 @@ export function ProofConfirmation({
             </div>
             <div className="flex justify-between">
               <dt className="text-slate-400">Date:</dt>
-              <dd className="text-slate-200">{formatDateTime(payment.occurredAt)}</dd>
+              <dd className="text-slate-200">
+                <Timestamp value={payment.occurredAt} />
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-slate-400">Transaction:</dt>

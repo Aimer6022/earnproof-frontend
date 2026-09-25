@@ -6,6 +6,8 @@ import {
   validateIssuerName,
   formatIssuerStatus,
   getIssuerStatusTone,
+  allowedIssuerTransitions,
+  canPerformIssuerTransition,
 } from "../issuers";
 
 describe("Issuer Utilities", () => {
@@ -58,6 +60,49 @@ describe("Issuer Utilities", () => {
 
     it("returns accent for unknown status", () => {
       expect(getIssuerStatusTone("UNKNOWN" as unknown as Parameters<typeof getIssuerStatusTone>[0])).toBe("accent");
+    });
+  });
+
+  describe("allowedIssuerTransitions (#141)", () => {
+    it("grants ADMIN every transition", () => {
+      expect(allowedIssuerTransitions("ADMIN")).toEqual(["activate", "suspend", "revoke"]);
+    });
+
+    it("limits ISSUER to activate and suspend, never revoke", () => {
+      const transitions = allowedIssuerTransitions("ISSUER");
+      expect(transitions).toEqual(["activate", "suspend"]);
+      expect(transitions).not.toContain("revoke");
+    });
+
+    it("grants WORKER and DEVELOPER no issuer transitions", () => {
+      expect(allowedIssuerTransitions("WORKER")).toEqual([]);
+      expect(allowedIssuerTransitions("DEVELOPER")).toEqual([]);
+    });
+
+    it("returns no transitions for an undefined or unrecognized role", () => {
+      expect(allowedIssuerTransitions(undefined)).toEqual([]);
+      expect(allowedIssuerTransitions("something-unexpected")).toEqual([]);
+    });
+  });
+
+  describe("canPerformIssuerTransition (#141)", () => {
+    it("allows ADMIN to revoke", () => {
+      expect(canPerformIssuerTransition("ADMIN", "revoke")).toBe(true);
+    });
+
+    it("denies ISSUER from revoking", () => {
+      expect(canPerformIssuerTransition("ISSUER", "revoke")).toBe(false);
+    });
+
+    it("allows ISSUER to activate and suspend", () => {
+      expect(canPerformIssuerTransition("ISSUER", "activate")).toBe(true);
+      expect(canPerformIssuerTransition("ISSUER", "suspend")).toBe(true);
+    });
+
+    it("denies every transition for an unauthenticated (undefined) role", () => {
+      expect(canPerformIssuerTransition(undefined, "activate")).toBe(false);
+      expect(canPerformIssuerTransition(undefined, "suspend")).toBe(false);
+      expect(canPerformIssuerTransition(undefined, "revoke")).toBe(false);
     });
   });
 });
