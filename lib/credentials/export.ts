@@ -83,12 +83,23 @@ export type DisclosureWarning = {
   message: string;
 };
 
+/** Server-provided integrity metadata for a downloaded export (#192).
+ * Optional: not every export plan is built from a server response that
+ * carries a digest yet. When absent, the download flow still computes and
+ * displays a digest of the exact bytes served, just with nothing to verify
+ * it against. */
+export type ExportDigestMetadata = {
+  algorithm: string;
+  value: string;
+};
+
 export type ArtifactExportPlan = {
   filename: string;
   includedFields: string[];
   warnings: DisclosureWarning[];
   body: string;
   mimeType: string;
+  digest?: ExportDigestMetadata;
 };
 
 function pick<T extends Record<string, unknown>>(
