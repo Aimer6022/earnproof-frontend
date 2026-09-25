@@ -6,6 +6,8 @@ import {
   downloadTextFile,
   type ArtifactExportPlan,
 } from "@/lib/credentials/export";
+import { verifyDigest, type DigestVerificationResult } from "@/lib/credentials/verify-digest";
+import { formatMessage } from "@/lib/i18n";
 
 export function ArtifactExport({
   plan,
@@ -18,6 +20,9 @@ export function ArtifactExport({
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [digestResult, setDigestResult] = useState<DigestVerificationResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [downloadFailed, setDownloadFailed] = useState(false);
 
   if (!plan) {
     return null;
@@ -25,6 +30,7 @@ export function ArtifactExport({
 
   function close() {
     setOpen(false);
+    setDigestResult(null);
   }
 
   async function copy() {
@@ -38,14 +44,53 @@ export function ArtifactExport({
     }
   }
 
-  function download() {
+  async function download() {
     setError(null);
+    setDownloadFailed(false);
+    setDigestResult(null);
+    setIsVerifying(true);
     try {
+      const bytes = new TextEncoder().encode(plan!.body).buffer;
+      const result = await verifyDigest(bytes, {
+        algorithm: plan!.digest?.algorithm ?? "SHA-256",
+        expectedDigest: plan!.digest?.value,
+      });
+      setDigestResult(result);
+
+      if (result.status === "mismatch") {
+        setError(
+          "The exported file's integrity check did not match. Nothing was downloaded — please retry.",
+        );
+        setDownloadFailed(true);
+        return;
+      }
+      if (result.status === "unsupported-algorithm") {
+        setError(
+          formatMessage(
+            "Cannot verify this export (unsupported integrity algorithm: {algorithm}). Nothing was downloaded.",
+            { algorithm: result.algorithm },
+          ),
+        );
+        setDownloadFailed(true);
+        return;
+      }
+
+      // "verified" (matched, or nothing to compare against) and
+      // "unavailable" (no SubtleCrypto in this environment) both proceed —
+      // an environment that cannot verify is not the same as a verification
+      // failure, and should not block a download entirely.
       downloadTextFile(plan!);
-      setStatus("Download started.");
+      setStatus(
+        result.status === "verified"
+          ? "Download started. Integrity verified."
+          : "Download started.",
+      );
       setOpen(false);
     } catch {
       setError("Download failed. Check browser permissions and try again.");
+      setDownloadFailed(true);
+    } finally {
+      setIsVerifying(false);
     }
   }
 
@@ -98,6 +143,31 @@ export function ArtifactExport({
               ))}
             </div>
           ) : null}
+          {digestResult && digestResult.status !== "unavailable" ? (
+            <div className="mt-3 rounded-md border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-300">
+              <p className="font-semibold uppercase text-slate-400">Integrity check</p>
+              {digestResult.status === "verified" ? (
+                <p className="mt-1 flex flex-wrap items-center gap-2">
+                  <code className="break-all font-mono text-cyan-200">{digestResult.digest}</code>
+                  <button
+                    className="text-cyan-300 underline"
+                    onClick={() => void navigator.clipboard?.writeText(digestResult.digest)}
+                    type="button"
+                  >
+                    Copy digest
+                  </button>
+                </p>
+              ) : (
+                <p className="mt-1 text-rose-200">
+                  {digestResult.status === "mismatch"
+                    ? "Digest mismatch — download blocked."
+                    : formatMessage("Unsupported algorithm: {algorithm}", {
+                        algorithm: digestResult.algorithm,
+                      })}
+                </p>
+              )}
+            </div>
+          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               className="h-9 rounded-md bg-cyan-300 px-4 text-xs font-semibold text-slate-950"
@@ -107,11 +177,12 @@ export function ArtifactExport({
               Copy
             </button>
             <button
-              className="h-9 rounded-md border border-white/15 px-4 text-xs font-semibold text-white"
-              onClick={download}
+              className="h-9 rounded-md border border-white/15 px-4 text-xs font-semibold text-white disabled:opacity-50"
+              onClick={() => void download()}
+              disabled={isVerifying}
               type="button"
             >
-              Download
+              {isVerifying ? "Verifying..." : downloadFailed ? "Retry download" : "Download"}
             </button>
             <button
               className="h-9 rounded-md px-4 text-xs font-semibold text-slate-300"

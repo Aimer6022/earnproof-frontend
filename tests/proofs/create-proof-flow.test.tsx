@@ -99,7 +99,23 @@ async function renderWithEligiblePayments() {
   fireEvent.click(screen.getAllByLabelText("Select payment")[0]);
   fireEvent.click(screen.getAllByLabelText("Select payment")[1]);
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: "Create proof" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Review before creating" })).toBeEnabled();
+  });
+}
+
+/** Opens the review step and confirms it, leaving the form ready for a
+ * "Create proof" click — mirrors the two-step flow #193 introduced
+ * (review, then an explicit confirm, then submit). */
+async function reviewAndConfirm() {
+  fireEvent.click(screen.getByRole("button", { name: "Review before creating" }));
+  await waitFor(() => {
+    expect(
+      screen.getByRole("button", { name: "I have reviewed this and confirm" }),
+    ).toBeInTheDocument();
+  });
+  fireEvent.click(screen.getByRole("button", { name: "I have reviewed this and confirm" }));
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Create proof" })).toBeInTheDocument();
   });
 }
 
@@ -115,6 +131,7 @@ describe("CreateProofFlow submission locking", () => {
     installApiClient({ createProof: () => pending.promise });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
 
     await waitFor(() => {
@@ -141,6 +158,7 @@ describe("CreateProofFlow submission locking", () => {
     });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     const button = screen.getByRole("button", { name: "Create proof" });
 
     // Two rapid, unawaited clicks before React can re-render the disabled
@@ -175,6 +193,7 @@ describe("CreateProofFlow submission locking", () => {
     });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     const button = screen.getByRole("button", { name: "Create proof" });
 
     for (let i = 0; i < 5; i += 1) {
@@ -196,6 +215,7 @@ describe("CreateProofFlow submission locking", () => {
     installApiClient({ createProof: () => Promise.reject(new Error("boom")) });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
 
     await waitFor(() => {
@@ -217,6 +237,7 @@ describe("CreateProofFlow idempotency key", () => {
     installApiClient({ createProof: () => Promise.resolve(PROOF_RESPONSE) });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
 
     await waitFor(() => {
@@ -233,6 +254,7 @@ describe("CreateProofFlow idempotency key", () => {
     installApiClient({ createProof: () => Promise.reject(new Error("boom")) });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
     await waitFor(() => {
       expect(screen.getByText(/Proof creation failed/)).toBeInTheDocument();
@@ -257,6 +279,7 @@ describe("CreateProofFlow idempotency key", () => {
     installApiClient({ createProof: () => Promise.resolve(PROOF_RESPONSE) });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
     await waitFor(() => {
       expect(screen.getByText("Proof created.")).toBeInTheDocument();
@@ -266,6 +289,9 @@ describe("CreateProofFlow idempotency key", () => {
       ([options]) => options.path === "/proofs/minimum-income",
     )[0].headers["Idempotency-Key"];
 
+    // A successful submission resets the review gate — a second submission
+    // is a genuinely new intent and must be reviewed again.
+    await reviewAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
     await waitFor(() => {
       const createCalls = mockedApiClient.mock.calls.filter(
@@ -288,6 +314,7 @@ describe("CreateProofFlow late-response ordering", () => {
     installApiClient({ createProof: () => pending.promise });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
 
     await waitFor(() => {
@@ -311,6 +338,7 @@ describe("CreateProofFlow late-response ordering", () => {
     installApiClient({ createProof: () => pending.promise });
 
     await renderWithEligiblePayments();
+    await reviewAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
     await waitFor(() => {
       expect(screen.getByText("Creating signed minimum-income proof...")).toBeInTheDocument();
@@ -323,5 +351,123 @@ describe("CreateProofFlow late-response ordering", () => {
     });
 
     expect(screen.queryByText(/Proof creation failed/)).not.toBeInTheDocument();
+  });
+});
+
+describe("CreateProofFlow review gate (#193)", () => {
+  it("shows a review step before submitting, with fields matching the exact payload that gets sent", async () => {
+    installApiClient({ createProof: () => Promise.resolve(PROOF_RESPONSE) });
+
+    await renderWithEligiblePayments();
+    fireEvent.click(screen.getByRole("button", { name: "Review before creating" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Review before submitting")).toBeInTheDocument();
+    });
+    // Nothing is sent to the API merely by opening the review step.
+    expect(
+      mockedApiClient.mock.calls.some(([o]) => o.path === "/proofs/minimum-income"),
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "I have reviewed this and confirm" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create proof" }));
+
+    await waitFor(() => expect(screen.getByText("Proof created.")).toBeInTheDocument());
+
+    const sentBody = JSON.parse(
+      mockedApiClient.mock.calls.find(([o]) => o.path === "/proofs/minimum-income")[0].body,
+    );
+    expect(sentBody).toEqual({
+      selectedPaymentIds: ["pay_1", "pay_2"],
+      thresholdAmount: "100",
+      assetCode: "USDC",
+      assetIssuer: "GISSUER1",
+      periodStart: "2026-08-01T00:00:00.000Z",
+      periodEnd: "2026-08-31T23:59:59.000Z",
+      expiresInDays: 30,
+    });
+  });
+
+  it("editing the threshold after confirming review invalidates the confirmation", async () => {
+    installApiClient({ createProof: () => Promise.resolve(PROOF_RESPONSE) });
+    await renderWithEligiblePayments();
+    await reviewAndConfirm();
+
+    expect(screen.getByRole("button", { name: "Create proof" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Threshold"), { target: { value: "250" } });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "I have reviewed this and confirm" }),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Create proof" })).not.toBeInTheDocument();
+  });
+
+  it("changing the period after confirming review invalidates the confirmation", async () => {
+    installApiClient({ createProof: () => Promise.resolve(PROOF_RESPONSE) });
+    await renderWithEligiblePayments();
+    await reviewAndConfirm();
+
+    fireEvent.change(screen.getByLabelText("Period end"), { target: { value: "2026-09-15" } });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "I have reviewed this and confirm" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("does not invalidate confirmation when nothing actually changed (re-render noise)", async () => {
+    installApiClient({ createProof: () => Promise.resolve(PROOF_RESPONSE) });
+    await renderWithEligiblePayments();
+    await reviewAndConfirm();
+
+    // Trigger a re-render without changing any tracked field.
+    fireEvent.change(screen.getByLabelText("Threshold"), { target: { value: "100" } });
+
+    expect(screen.getByRole("button", { name: "Create proof" })).toBeInTheDocument();
+  });
+
+  it("Back to edit cancels the review without submitting", async () => {
+    installApiClient({ createProof: () => Promise.resolve(PROOF_RESPONSE) });
+    await renderWithEligiblePayments();
+    fireEvent.click(screen.getByRole("button", { name: "Review before creating" }));
+    await waitFor(() => {
+      expect(screen.getByText("Review before submitting")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to edit" }));
+
+    expect(screen.queryByText("Review before submitting")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review before creating" })).toBeInTheDocument();
+    expect(
+      mockedApiClient.mock.calls.some(([o]) => o.path === "/proofs/minimum-income"),
+    ).toBe(false);
+  });
+
+  it("a double click on the confirmed Create proof button still sends only one mutation", async () => {
+    const pending = deferred<typeof PROOF_RESPONSE>();
+    let createCalls = 0;
+    installApiClient({
+      createProof: () => {
+        createCalls += 1;
+        return pending.promise;
+      },
+    });
+
+    await renderWithEligiblePayments();
+    await reviewAndConfirm();
+    const button = screen.getByRole("button", { name: "Create proof" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await act(async () => {
+      pending.resolve(PROOF_RESPONSE);
+    });
+
+    await waitFor(() => expect(screen.getByText("Proof created.")).toBeInTheDocument());
+    expect(createCalls).toBe(1);
   });
 });

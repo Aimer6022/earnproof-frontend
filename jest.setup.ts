@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom";
 import { TextEncoder, TextDecoder } from "node:util";
+import { webcrypto } from "node:crypto";
 
 // jsdom doesn't implement TextEncoder/TextDecoder; Node's util module does.
 // Needed by anything that pulls in lib/validation/qr-payload.ts (byte-length
@@ -9,6 +10,17 @@ if (typeof globalThis.TextEncoder === "undefined") {
 }
 if (typeof globalThis.TextDecoder === "undefined") {
   globalThis.TextDecoder = TextDecoder as typeof globalThis.TextDecoder;
+}
+
+// jsdom's window.crypto only implements getRandomValues, not SubtleCrypto —
+// needed by lib/credentials/verify-digest.ts's SHA-256 digest verification.
+// Node's own webcrypto implementation is spec-compliant, so reuse it rather
+// than adding a mocking library.
+if (typeof globalThis.crypto === "undefined" || !globalThis.crypto.subtle) {
+  Object.defineProperty(globalThis, "crypto", {
+    value: webcrypto,
+    configurable: true,
+  });
 }
 
 if (typeof globalThis.structuredClone === "undefined") {

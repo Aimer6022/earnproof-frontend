@@ -10,6 +10,7 @@
 
 export const STORAGE_KEYS = {
   SESSION: 'earnproof.session' as const,
+  FORM_DRAFTS: 'earnproof.form-drafts' as const,
   DISPLAY_PREFERENCES: 'earnproof.display-preferences' as const,
 } as const;
 
@@ -28,6 +29,10 @@ export interface StorageSchema {
       };
     };
   };
+  FORM_DRAFTS: {
+    // Keyed by an application-chosen form id (e.g. "create-proof-flow") so
+    // multiple forms can each keep their own draft without colliding.
+    data: Record<string, { savedAt: string; values: unknown }>;
   DISPLAY_PREFERENCES: {
     data: {
       reducedMotion: DisplayPreferenceMode;
@@ -39,6 +44,7 @@ export interface StorageSchema {
 // Current versions of each storage schema
 export const CURRENT_VERSIONS: Record<StorageKey, number> = {
   SESSION: 1,
+  FORM_DRAFTS: 1,
   DISPLAY_PREFERENCES: 1,
 };
 
@@ -104,6 +110,7 @@ export const migrations: Record<StorageKey, Record<number, StorageMigration>> = 
     // Version 1 is current - no migration needed
     1: (data) => data,
   },
+  FORM_DRAFTS: {
   DISPLAY_PREFERENCES: {
     // Version 1 is current - no migration needed
     1: (data) => data,
@@ -177,7 +184,7 @@ export function setStorageValue<K extends StorageKey>(
       version: CURRENT_VERSIONS[key],
       timestamp: new Date().toISOString(),
       key,
-    } as StoredValue<K>;
+    } as unknown as StoredValue<K>;
     
     driver.setItem(key, JSON.stringify(storedValue));
   } catch (error) {
