@@ -4,7 +4,7 @@
 
 import { render, screen, fireEvent } from "@testing-library/react";
 import { WizardSteps } from "../wizard-steps";
-import { WIZARD_STEPS } from "@/lib/validation/recurring-income-proofs";
+import { WIZARD_STEPS, STEP_ORDER, STEP_LABELS } from "@/lib/validation/recurring-income-proofs";
 
 describe("WizardSteps", () => {
   const mockOnStepChange = jest.fn();
@@ -19,6 +19,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.INTERVAL_CONFIG}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -37,6 +39,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.PERIOD_CONFIG}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -53,6 +57,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.COVERAGE_ANALYSIS}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -72,6 +78,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.PAYMENT_SELECTION}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -95,6 +103,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.INTERVAL_CONFIG}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -112,6 +122,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.INTERVAL_CONFIG}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -127,6 +139,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.INTERVAL_CONFIG}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -142,6 +156,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.PERIOD_CONFIG}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -159,6 +175,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.CONFIRMATION}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}
@@ -174,6 +192,8 @@ describe("WizardSteps", () => {
 
     render(
       <WizardSteps
+        stepOrder={STEP_ORDER}
+        stepLabels={STEP_LABELS}
         currentStep={WIZARD_STEPS.INTERVAL_CONFIG}
         onStepChange={mockOnStepChange}
         canProceedToStep={mockCanProceedToStep}

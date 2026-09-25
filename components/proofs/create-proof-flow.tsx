@@ -10,7 +10,7 @@ import { NetworkMismatchAlert } from "@/components/wallet/network-mismatch-alert
 import { appConfig } from "@/config/app";
 import { apiClient, bearer } from "@/lib/api/client";
 import { buildCredentialExport, buildVerificationLinkExport } from "@/lib/credentials/export";
-import { resolveIdempotencyKey, type IdempotencyState, type ProofIntent } from "@/lib/proofs/idempotency";
+import { resolveIdempotencyKey, type IdempotencyState } from "@/lib/proofs/idempotency";
 import { createSubmissionGuard } from "@/lib/proofs/submission-guard";
 import {
   buildMinimumIncomeProofPayload,
@@ -26,19 +26,18 @@ import type {
   NetworkCompatibilityCheckResult,
   WalletNetworkContext,
 } from "@/lib/wallet/types";
+import {
+  readStoredSession,
+  storeSession,
+  clearStoredSession,
+  type SessionUser,
+} from "@/lib/session";
 
 type PendingChallenge = {
   id: string;
   message: string;
   expiresAt: string;
   walletAddress: string;
-};
-
-type SessionUser = {
-  id: string;
-  walletAddress: string;
-  walletHash: string;
-  role: string;
 };
 
 type PaymentClassification =
@@ -70,8 +69,6 @@ type ProofResponse = {
     };
   };
 };
-
-const SESSION_KEY = "earnproof.session";
 
 export function CreateProofFlow() {
   const initialSession = useMemo(() => readStoredSession(), []);
@@ -263,10 +260,7 @@ export function CreateProofFlow() {
         }),
       });
 
-      window.localStorage.setItem(
-        SESSION_KEY,
-        JSON.stringify({ token: verified.session.token, user: verified.user }),
-      );
+      storeSession({ token: verified.session.token, user: verified.user });
       setToken(verified.session.token);
       setUser(verified.user);
       setStatus("Wallet authenticated.");
@@ -399,6 +393,14 @@ export function CreateProofFlow() {
     setProof(null);
     setStatus("Creating signed minimum-income proof...");
 
+    const intent = {
+      selectedPaymentIds: selectedIncomePayments.map((payment) => payment.id),
+      thresholdAmount,
+      assetCode: selectedIncomePayments[0].assetCode,
+      assetIssuer: selectedIncomePayments[0].assetIssuer ?? undefined,
+      periodStart: `${periodStart}T00:00:00.000Z`,
+      periodEnd: `${periodEnd}T23:59:59.000Z`,
+    };
     // A retry of the same intent (same selection, threshold, and period)
     // reuses the previous idempotency key; anything else mints a new one.
     // See lib/proofs/idempotency.ts.
@@ -457,7 +459,7 @@ export function CreateProofFlow() {
     submissionGuardRef.current.invalidate();
     idempotencyRef.current = null;
     setIsSubmittingProof(false);
-    window.localStorage.removeItem(SESSION_KEY);
+    clearStoredSession();
     setToken(null);
     setUser(null);
     setPayments([]);
@@ -696,24 +698,6 @@ export function CreateProofFlow() {
       ) : null}
     </div>
   );
-}
-
-function readStoredSession() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const stored = window.localStorage.getItem(SESSION_KEY);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(stored) as { token: string; user: SessionUser };
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
 }
 
 function PaymentRow({

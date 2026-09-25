@@ -7,34 +7,7 @@ import { usePagination } from "@/lib/hooks/use-pagination";
 import type { Issuer, Organization } from "@/lib/api/generated/v1";
 import type { IssuerWithRevision } from "@/lib/api/issuers";
 import type { OrganizationWithRevision } from "@/lib/api/organizations";
-
-const SESSION_KEY = "earnproof.session";
-
-type SessionData = {
-  token: string;
-  user: {
-    id: string;
-    role: string;
-  };
-};
-
-function readStoredSession(): SessionData | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const stored = window.localStorage.getItem(SESSION_KEY);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(stored) as SessionData;
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-}
+import { readStoredSession, type Session as SessionData } from "@/lib/session";
 
 export function IssuerManagement() {
   const [session] = useState<SessionData | null>(() => readStoredSession());
